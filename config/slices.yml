@@ -1,0 +1,47 @@
+# A "slice" is one filter selection a quality officer would make:
+# one institute, one year, one programme. Each slice has a KNOWN
+# composition, which is what makes the metrics computable.
+#
+# absent_theme: planted in NO response. Anything the model says about it
+#               is a hallucination, measured directly.
+
+defaults:
+  seed: 42
+  include_ids: true
+
+slices:
+  - id: "S01"
+    label: "ICT · 2026 · Software Engineering"
+    total: 60
+    dominant:
+      theme: "Examination & Assessment"
+      count: 22
+    mid:
+      - theme: "Teachers"
+        count: 12
+      - theme: "Content and Organisation"
+        count: 10
+    minority:
+      theme: "Support / Mentoring"
+      count: 6                     # the erasure test
+    absent_theme: "Professional Practice"
+    noise: 6
+    english: 4                     # ~7%; raise to 9 for ~15%
+
+  - id: "S02"
+    label: "ICT · 2026 · Business IT (large)"
+    total: 300
+    dominant:
+      theme: "Content and Organisation"
+      count: 110
+    mid:
+      - theme: "Examination & Assessment"
+        count: 70
+      - theme: "Teachers"
+        count: 55
+    minority:
+      theme: "Support / Mentoring"
+      count: 8                     # 2.7% — survives map-reduce?
+    absent_theme: "Professional Practice"
+    noise: 25
+    english: 32

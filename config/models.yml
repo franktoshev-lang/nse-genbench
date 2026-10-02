@@ -1,0 +1,56 @@
+# The slate. Sizes and ids verified against the NSE repo's
+# llama_cpp_models.py registry (commit 6a48c37).
+#
+# status: ready | needs_vram_check | needs_gguf_check | blocked
+
+slate:
+  - key: gemma4-12b
+    name: "Gemma 4 12B IT QAT"
+    repo_id: "unsloth/gemma-4-12B-it-qat-GGUF"
+    quant: "UD-Q4_K_XL"
+    size_gb: 6.2
+    role: baseline
+    status: ready
+    notes: "DEFAULT_LLM_MODEL in .env.example; only entry with recommended=True"
+
+  - key: gemma4-e4b
+    name: "Gemma 4 E4B IT QAT"
+    repo_id: "unsloth/gemma-4-E4B-it-qat-GGUF"
+    quant: "UD-Q4_K_XL"
+    size_gb: 4.22
+    role: smaller
+    status: ready
+
+  - key: gemma4-26b-a4b
+    name: "Gemma 4 26B-A4B IT QAT (MoE)"
+    repo_id: "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
+    quant: "UD-Q4_K_XL"
+    size_gb: 16.9
+    role: larger
+    status: needs_vram_check
+    notes: "MoE, ~4B active. Registry rates speed Moderate vs 31B Slow"
+
+  - key: mistral-small-24b
+    name: "Mistral Small 24B Instruct"
+    repo_id: "TBC"
+    quant: "Q4_K_M"
+    size_gb: 13.5
+    role: licence_challenger
+    status: needs_gguf_check
+    notes: "Apache-2.0. Strongest open-weight result in arXiv 2608.09925"
+
+  - key: extractive
+    name: "Extractive baseline (no LLM)"
+    repo_id: null
+    quant: null
+    size_gb: 0
+    role: floor
+    status: ready
+    notes: "N most central responses by embedding similarity. The only entry that shows whether an LLM adds value at all."
+
+# Decoding settings. The repo overrides its own 0.1 default to 1.0 on all
+# five models; that override is variant P4, not a given.
+decoding:
+  repo_default:   { temperature: 1.0, top_p: 0.95, top_k: 64, enable_thinking: true }
+  low_variance:   { temperature: 0.3, top_p: 0.95, top_k: 64, enable_thinking: false }
+  deterministic:  { temperature: 0.1, top_p: 0.95, top_k: 64, enable_thinking: false }

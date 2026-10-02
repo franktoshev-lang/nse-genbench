@@ -1,0 +1,35 @@
+# ── Never commit data ─────────────────────────────────────────────
+# Real NSE responses, exports, checkpoints, vector DBs, caches.
+data/real/
+data/staged/
+out/
+*.jsonl
+!data/synthetic/example.jsonl
+*.csv
+*.xlsx
+*.sqlite3
+chroma/
+.cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Models
+*.gguf
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

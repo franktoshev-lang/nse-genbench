@@ -1,0 +1,8 @@
+# Deliberately minimal: the measurement layer must run anywhere,
+# including inside the supervised offline environment.
+PyYAML>=6.0
+pytest>=8.0
+
+# Optional — only needed once real inference is wired up.
+# Install separately so the metric harness stays dependency-light.
+#   pip install -r requirements-infer.txt
