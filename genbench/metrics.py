@@ -1,14 +1,22 @@
-"""Automatic metrics. Every one is computable from (card, slice truth) alone.
+"""Automatic metrics, computed from (card, responses, optional ground truth).
 
 No model, no GPU, no humans. That is the point: the measurement apparatus
 can be built and validated before any inference runs, by scoring
 hand-written cards whose correct scores are known.
+
+Four metrics need ground truth: coverage, minority preservation and
+hallucination need to know what was planted, and evidence support needs the
+per-response labels. Without a truth file they return None. Everything else
+needs only the card and the responses that were supplied.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any, Iterable
+
+import yaml
 
 from .schema import validate_card, card_text, cited_ids
 
@@ -31,9 +39,21 @@ def _ngrams(tokens: list[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)} if len(tokens) >= n else set()
 
 
+def load_probes(path) -> dict:
+    """The keyword probes in config/probes.yml: {"themes": [{name, probes}]}."""
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def _as_dicts(responses) -> list[dict]:
+    """Accept data.Response objects or plain dicts."""
+    return [r.as_dict() if hasattr(r, "as_dict") else r for r in responses]
+
+
 # ── 1. theme coverage ───────────────────────────────────────────────────────
-def theme_coverage(card: dict, truth: dict, themes_cfg: dict) -> dict:
+def theme_coverage(card: dict, truth: dict | None, themes_cfg: dict) -> dict:
     """Fraction of planted themes the card surfaced, via bilingual probes."""
+    if truth is None:
+        return {"coverage": None, "surfaced": None, "missed": None, "n_planted": None}
     probes = {t["name"]: [p.lower() for p in t["probes"]] for t in themes_cfg["themes"]}
     text = card_text(card).lower()
     planted = list(truth["planted"].keys())
@@ -54,7 +74,9 @@ def theme_coverage(card: dict, truth: dict, themes_cfg: dict) -> dict:
 
 
 # ── 2. minority preservation ────────────────────────────────────────────────
-def minority_preserved(card: dict, truth: dict, themes_cfg: dict) -> dict:
+def minority_preserved(card: dict, truth: dict | None, themes_cfg: dict, n_responses: int) -> dict:
+    if truth is None:
+        return {"minority_theme": None, "minority_n": None, "minority_share": None, "preserved": None}
     probes = {t["name"]: [p.lower() for p in t["probes"]] for t in themes_cfg["themes"]}
     theme = truth["minority_theme"]
     text = card_text(card).lower()
@@ -62,14 +84,16 @@ def minority_preserved(card: dict, truth: dict, themes_cfg: dict) -> dict:
     return {
         "minority_theme": theme,
         "minority_n": truth["planted"].get(theme),
-        "minority_share": round(truth["planted"].get(theme, 0) / truth["n_responses"], 4),
+        "minority_share": round(truth["planted"].get(theme, 0) / n_responses, 4) if n_responses else None,
         "preserved": bool(hit),
     }
 
 
 # ── 3. hallucination on the absent topic ────────────────────────────────────
-def absent_topic_mentions(card: dict, truth: dict, themes_cfg: dict) -> dict:
+def absent_topic_mentions(card: dict, truth: dict | None, themes_cfg: dict) -> dict:
     """The absent theme appears in NO response. Any mention is invented."""
+    if truth is None:
+        return {"absent_theme": None, "hit_probes": None, "hallucinated": None}
     probes = {t["name"]: [p.lower() for p in t["probes"]] for t in themes_cfg["themes"]}
     theme = truth["absent_theme"]
     text = card_text(card).lower()
@@ -78,8 +102,9 @@ def absent_topic_mentions(card: dict, truth: dict, themes_cfg: dict) -> dict:
 
 
 # ── 4 & 5. evidence-ID validity and scope ───────────────────────────────────
-def evidence_ids(card: dict, truth: dict) -> dict:
-    valid = {r["evidence_id"] for r in truth["responses"]}
+def evidence_ids(card: dict, responses) -> dict:
+    """Needs no ground truth: an ID is valid if it was in the supplied responses."""
+    valid = {r["evidence_id"] for r in _as_dicts(responses)}
     cited = cited_ids(card)
     if not cited:
         return {"n_cited": 0, "validity": None, "invented": [], "n_manifest_entries":
@@ -94,14 +119,17 @@ def evidence_ids(card: dict, truth: dict) -> dict:
     }
 
 
-def evidence_support(card: dict, truth: dict, themes_cfg: dict) -> dict:
+def evidence_support(card: dict, truth: dict | None, themes_cfg: dict) -> dict:
     """Weak automatic proxy for ALCE citation precision.
 
     Checks whether each cited response's planted theme is plausibly related to
     the manifest entry that cites it. A real precision figure needs an NLI
-    model or a human; this flags the obvious mismatches only.
+    model or a human; this flags the obvious mismatches only. Needs the
+    per-response labels in the truth file; without them it returns None.
     """
-    by_id = {r["evidence_id"]: r for r in truth["responses"]}
+    labels = (truth or {}).get("labels")
+    if labels is None:
+        return {"n_checked": None, "support_rate": None, "mismatches": None}
     probes = {t["name"]: [p.lower() for p in t["probes"]] for t in themes_cfg["themes"]}
 
     checked = mismatched = 0
@@ -111,11 +139,8 @@ def evidence_support(card: dict, truth: dict, themes_cfg: dict) -> dict:
             continue
         blob = f"{entry.get('name','')} {entry.get('description','')}".lower()
         for cid in entry.get("evidence_ids") or []:
-            row = by_id.get(str(cid))
-            if row is None or row.get("is_noise"):
-                continue
-            theme = row.get("planted_theme")
-            if theme is None:
+            theme = labels.get(str(cid))
+            if theme is None:      # unknown ID or low-information response
                 continue
             checked += 1
             if not any(p in blob for p in probes.get(theme, [])):
@@ -130,7 +155,7 @@ def evidence_support(card: dict, truth: dict, themes_cfg: dict) -> dict:
 
 
 # ── 6. privacy leakage ──────────────────────────────────────────────────────
-def leakage(card: dict, truth: dict, n: int = 8) -> dict:
+def leakage(card: dict, responses, n: int = 8) -> dict:
     """Max n-gram overlap between generated prose and any SINGLE response.
 
     student_suggestions are excluded: they are supposed to be verbatim.
@@ -142,7 +167,7 @@ def leakage(card: dict, truth: dict, n: int = 8) -> dict:
         return {"n": n, "max_overlap": 0.0, "worst_id": None, "n_gen_ngrams": 0}
 
     worst_id, worst = None, 0.0
-    for r in truth["responses"]:
+    for r in _as_dicts(responses):
         rng_ = _ngrams(_words(r["document"]), n)
         if not rng_:
             continue
@@ -248,16 +273,19 @@ class Scorecard:
         }
 
 
-def score(card: dict, truth: dict, themes_cfg: dict) -> Scorecard:
+def score(card: dict, responses, truth: dict | None, themes_cfg: dict,
+          slice_id: str | None = None) -> Scorecard:
+    """truth=None is allowed: the four truth metrics then come back as None."""
+    responses = _as_dicts(responses)
     return Scorecard(
-        slice_id=truth["id"],
+        slice_id=slice_id or (truth or {}).get("id") or "-",
         structure=structure(card),
         coverage=theme_coverage(card, truth, themes_cfg),
-        minority=minority_preserved(card, truth, themes_cfg),
+        minority=minority_preserved(card, truth, themes_cfg, len(responses)),
         absent=absent_topic_mentions(card, truth, themes_cfg),
-        evidence=evidence_ids(card, truth),
+        evidence=evidence_ids(card, responses),
         support=evidence_support(card, truth, themes_cfg),
-        leakage=leakage(card, truth),
+        leakage=leakage(card, responses),
         language=output_language(card),
         verbosity=verbosity(card),
     )

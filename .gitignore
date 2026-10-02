@@ -1,10 +1,9 @@
 # ── Never commit data ─────────────────────────────────────────────
-# Real NSE responses, exports, checkpoints, vector DBs, caches.
-data/real/
-data/staged/
+# Responses, ground truth, exports, checkpoints, vector DBs, caches.
+# Data is supplied at run time by path; nothing under data/ is tracked.
+data/
 out/
 *.jsonl
-!data/synthetic/example.jsonl
 *.csv
 *.xlsx
 *.sqlite3

@@ -2,126 +2,170 @@
 
 Benchmark harness for the **generation stage** of the NSE Open-Response
 Analysis Tool: does a larger or different model produce theme insights that
-are more *grounded*, *complete* and *stable* for quality officers — or only
-more *fluent*?
+are more grounded, complete and stable for quality officers, or only more
+fluent?
 
-Personal research project (MA-AAI), role: **GenAI Engineer**.
-Companion to the group project at `r-huijts/NSE_Applied_GenAI`.
+Personal research project (MA-AAI), role: GenAI Engineer. Companion to the
+group project at `r-huijts/NSE_Applied_GenAI`.
 
----
+## The pipeline
 
-## The idea in one paragraph
+```
+data -> prompt -> model -> answer -> score
+```
 
-Generate a synthetic Dutch corpus **from a known theme distribution**, so the
-correct answer is known before any model runs. Then score each generated
-dashboard card on coverage, minority preservation, hallucination, citation
-validity, stability, privacy leakage and output language — and measure
-**fluency separately**, so the two can be compared. Finally, cross model
-against prompt, because the literature says the best prompt may differ per
-model.
+| Stage | Module | What it does |
+|---|---|---|
+| 1 Data | `genbench/data.py` | Loads responses (and optional ground truth) from paths given at run time. Ships no data, generates none. |
+| 2 Prompt | `genbench/prompts.py`, `genbench/pipeline.py` | The group pipeline's prompts, copied verbatim, plus its single-pass / map-reduce logic. |
+| 3 Model | `genbench/runners.py` | One client for any OpenAI-compatible endpoint, plus `MockRunner` for running with no model. |
+| 4 Answer + score | `genbench/schema.py`, `metrics.py`, `report.py` | Parses the answer with the group's own JSON repair, scores it, prints a table. |
 
-## Why the measurement layer comes first
-
-`MockRunner` returns fixed cards whose correct scores are known. That means
-**the entire metric harness is validated before any GPU exists** — 23 tests
-assert that a known-good card scores 1.0 coverage, a known-bad card loses the
-minority theme and invents an evidence ID, and a leaky card is caught at
-> 0.9 n-gram overlap. Swapping in a real model is then the only remaining
-unknown.
-
----
+`scripts/run.py` walks the four stages in order and prints which one it is in.
 
 ## Quick start
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python -m venv .venv            # then activate it
 pip install -r requirements.txt
+python -m pytest -q
 
-python3 scripts/make_corpus.py      # writes data/synthetic/
-python3 scripts/smoke.py            # end-to-end, no model needed
-python3 -m pytest -q                # 23 tests
+python scripts/run.py --responses PATH [--truth PATH] --model mock:good \
+                      [--mode single|mapreduce] [--theme NAME]
 ```
 
-Expected smoke output: three mock models scored side by side, with
-`mock:good` at coverage 1.000 and `mock:bad` at 0.250.
+`--model mock:good`, `mock:bad` or `mock:leaky` runs the whole pipeline with
+no model and no network. Any other value is a model name for the endpoint in
+`.env`.
+
+## Stage 1 - Data
+
+Nothing in this repo is data, and nothing under `data/` is ever tracked.
+Real responses will come from the group project; their export format is not
+known yet, so each format is parsed by one function in `genbench/data.py`
+(`_PARSERS`). JSONL is the first:
+
+```json
+{"evidence_id": "E0001", "document": "...", "evidence_type": "definite"}
+```
+
+These are the three fields the group's prompts read. Other fields are
+ignored. `evidence_type` must be one the group prompt uses (`definite`,
+`ambiguous`, `free_text_retrieval`, `subtheme_candidate`): any other value
+would be dropped from the prompt without a warning, so the loader rejects it.
+A missing file is an error, never a reason to generate something.
+
+Ground truth is optional (`--truth`, JSON):
+
+```json
+{"theme": "Teachers",
+ "planted": {"Teachers": 12, "Support / Mentoring": 6},
+ "minority_theme": "Support / Mentoring",
+ "absent_theme": "Professional Practice",
+ "labels": {"E0001": "Teachers", "E0002": null}}
+```
+
+`labels` is optional and only feeds evidence support. Without a truth file,
+the four metrics that need it show `-` and everything else still runs.
+
+## Stage 2 - Prompt
+
+`genbench/prompts.py` is a verbatim copy of
+`src/pipeline/04_generation/prompts.py` and the theme definitions from
+`src/config/themes.py`, at commit `6a48c37`. It is the **baseline control**,
+so it keeps the group's known problems on purpose: "Gemma 4" hardcoded three
+times, `summary` as the first schema key, the English-output rule, and no
+caps or evidence-ID rule in the map prompt. Variants will be a separate
+layer; none exist yet.
+
+`tests/test_prompts.py` checks that every prompt, plus `parse_llm_json`,
+renders byte-identical to the group repo: against a snapshot of the group's
+own output (always), and against a local clone when `NSE_REPO_PATH` is set.
+
+`genbench/pipeline.py` mirrors the group's `service.py`: at most 240
+responses reach the model (the rest are dropped), 60 per batch, a single
+prompt when that is one batch, otherwise one map prompt per batch and a
+reduce prompt over the parsed batch answers. `--mode` can force either path;
+the run output says when that differs from what the group pipeline would do.
+
+## Stage 3 - Model
+
+Configured in `.env` (copy `.env.example`):
+
+```
+MODEL_BASE_URL=   # e.g. http://127.0.0.1:8080/v1 for llama-server
+MODEL_API_KEY=
+MODEL_NAME=
+```
+
+With `MODEL_BASE_URL` empty, any non-mock run stops with a clear error.
+
+Settings are always sent explicitly, never inherited from the group's model
+registry:
+
+| Setting | Default | Why |
+|---|---|---|
+| `max_tokens` | 8192 (`--max-tokens`) | The group's own code default. Its registry uses 12768-18768 with thinking on. |
+| `temperature` | 0.1 (`--temperature`) | The group's code default. Its registry overrides it to 1.0 on every model; that is a condition to test, not to inherit. |
+| `seed` | 42 (`GENBENCH_SEED`) | Same input, same output where the provider honours it. |
+| tools / web search | never sent | The payload is built from an allowlist. |
+
+Requests are one user message with no system message, as in the group
+pipeline. The client retries timeouts, connection errors, 429 and 5xx with
+backoff, and fails at once on other errors. It uses only the standard library.
+
+Every raw response is cached under `out/cache/`, keyed by model, prompt hash
+and an input hash (endpoint, max_tokens, temperature, seed, repeat index), so
+scoring can be re-run without calling the model again. The prompt text is
+not stored; the model's answers are, so treat `out/` as data.
+
+## Stage 4 - Answer + score
+
+The answer is parsed with the group's `parse_llm_json`, so repairs happen
+exactly as in production. An answer it cannot parse is scored as an empty,
+invalid card.
+
+| Metric | Needs ground truth? |
+|---|---|
+| Structural / JSON validity | no |
+| Theme coverage | yes |
+| Minority preservation | yes |
+| Hallucination (absent theme) | yes |
+| Evidence-ID validity | no |
+| Evidence support (weak proxy) | yes (`labels`) |
+| Privacy leakage (8-gram overlap) | no |
+| Stability (Jaccard over repeats) | no |
+| Output language | no |
+| Verbosity | no |
+
+The three mock cards (good, bad, leaky) have known correct scores, and the
+tests assert them, with and without ground truth. That is what shows the
+scorer works before any model runs.
+
+Coverage, minority and hallucination use the keyword probes in
+`config/probes.yml`. Keyword matching is fragile and the probes overlap
+across themes; it is used because it is transparent and bilingual. A theme
+with no probes is never counted as surfaced.
+
+## Rules
+
+- No data in git. `git ls-files data/` must print nothing.
+- Dependencies: PyYAML and pytest only.
+- Everything runs and is tested with no GPU and no network.
+- Same input, same output.
 
 ## Layout
 
 ```
-config/
-  themes.yml     7-theme inventory, Dutch templates, bilingual probes
-  slices.yml     slice recipes — the planted ground truth
-  models.yml     the slate, with VRAM/GGUF status per entry
-genbench/
-  corpus.py      deterministic synthetic corpus generator
-  schema.py      the dashboard-card schema, mirrored from the pipeline
-  metrics.py     all automatic metrics
-  runners.py     MockRunner (works now) + LlamaCppRunner (stub)
-  report.py      plain-text results table
-scripts/
-  make_corpus.py
-  smoke.py
-tests/           23 tests validating the metrics against known cards
-data/synthetic/  generated; the .jsonl is gitignored, the recipe is not
+config/probes.yml      keyword probes used by the scorer
+config/models.yml      candidate model slate (notes; not read by code)
+genbench/data.py       stage 1
+genbench/prompts.py    stage 2, verbatim group prompts
+genbench/pipeline.py   stage 2, single-pass / map-reduce
+genbench/runners.py    stage 3
+genbench/schema.py     stage 4, card schema
+genbench/metrics.py    stage 4
+genbench/report.py     stage 4, results table
+scripts/run.py         one run, all four stages
+tests/                 tests; tests/golden/ holds the group's rendered prompts
 ```
-
-## How a slice encodes its own ground truth
-
-`config/slices.yml` → slice `S01`, 60 responses:
-
-| Ingredient | Count | Makes measurable |
-|---|---|---|
-| Dominant theme — Examination & Assessment | 22 | baseline coverage |
-| Mid themes — Teachers, Content & Organisation | 12, 10 | ordinary coverage |
-| **Minority — Support / Mentoring** | **6** | **erasure** |
-| **Absent — Professional Practice** | **0** | **hallucination** |
-| Noise ("Prima", "Goed") | 6 | low-information passthrough |
-| English responses | 4 | mixed-language handling |
-
-`S02` is the same shape at 300 responses, so the minority theme sits at 2.7%
-— which is the map-reduce survival test.
-
-## Metrics
-
-| Metric | Needs a model? | Needs a human? |
-|---|---|---|
-| Structural / JSON validity | yes | no |
-| Theme coverage | yes | no |
-| Minority preservation | yes | no |
-| Hallucination (absent theme) | yes | no |
-| Evidence-ID validity | yes | no |
-| Evidence support (weak proxy) | yes | no |
-| Privacy leakage (8-gram overlap) | yes | no |
-| Stability (Jaccard over repeats) | yes | no |
-| Output language | yes | no |
-| Verbosity | yes | no |
-| Faithfulness (claim-level) | yes | judge + validation |
-| Usefulness / trust / completeness | yes | **quality officers (BWS)** |
-
-### Known limitation, stated deliberately
-
-Coverage, minority and hallucination use **keyword probes**. Keyword matching
-is fragile. It is used here because it is transparent and tunable, and the
-probes are **bilingual** — unlike `insight_metrics.subtheme_mention_rows()`
-in the NSE repo, which filters Dutch text with a mostly-English stopword list
-and feeds the result to dashboard percentages. See `nse-prompt-limitations.md`.
-
-## Not committed, ever
-
-`.gitignore` excludes `data/real/`, `data/staged/`, `out/`, all `*.jsonl`
-except one example, `*.csv`, `*.xlsx`, vector stores, `.env` and `*.gguf`.
-Recipes are version-controlled; data is not.
-
-## Blocked work
-
-`LlamaCppRunner.generate()` raises `NotImplementedError` on purpose. Before
-any real run:
-
-1. **Fix D-1** — the prompt hardcodes `Gemma 4` three times, which confounds
-   every cross-model comparison.
-2. **Confirm GPU** — does 26B-A4B (~16.9 GB) fit? Does Mistral Small 24B?
-3. **Raise `max_tokens`** — the repo pins 2048; verbose models truncate and
-   score 0 for a harness bug.
-4. **Choose temperature deliberately** — the repo overrides its own 0.1
-   default to 1.0 on all five models.
-5. **Disable web search / tools** on every model, and record that you did.

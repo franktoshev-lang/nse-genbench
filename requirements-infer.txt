@@ -1,3 +1,0 @@
-# Only needed for Phase 2 (talking to llama-server or the Fontys gateway).
-requests>=2.31
-python-dotenv>=1.0

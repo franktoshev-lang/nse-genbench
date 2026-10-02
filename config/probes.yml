@@ -1,0 +1,25 @@
+# Keyword probes used by the scorer (stage 4) to decide whether a generated
+# card surfaced a theme. These are the measuring instrument, not data: they
+# are only read when a ground-truth file is supplied.
+#
+# NL + EN because the group prompt forces English output while responses
+# are Dutch. Matching is lowercase substring.
+# KNOWN LIMITATION: keyword matching is fragile and probes overlap across
+# themes (e.g. "uitleg", "begeleider"). Used deliberately and documented.
+# Themes without probes here are never counted as surfaced.
+
+themes:
+  - name: "Examination & Assessment"
+    probes: ["toets", "tentamen", "beoordel", "feedback", "cijfer", "assessment", "exam", "grading", "marking", "rubric"]
+
+  - name: "Teachers"
+    probes: ["docent", "leraar", "begeleider", "uitleg", "teacher", "lecturer", "instructor", "explanation"]
+
+  - name: "Content and Organisation"
+    probes: ["inhoud", "curriculum", "organisatie", "rooster", "planning", "studiemateriaal", "content", "organisation", "schedule", "timetable", "workload", "material"]
+
+  - name: "Support / Mentoring"
+    probes: ["begeleiding", "studieloopbaan", "slb", "mentor", "ondersteuning", "support", "mentoring", "guidance", "counsel"]
+
+  - name: "Professional Practice"
+    probes: ["stage", "werkveld", "beroepspraktijk", "praktijk", "bedrijf", "internship", "placement", "professional practice", "industry"]
