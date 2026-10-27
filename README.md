@@ -22,6 +22,7 @@ data -> prompt -> model -> answer -> score
 | 4 Answer + score | `genbench/schema.py`, `metrics.py`, `report.py` | Parses the answer with the group's own JSON repair, scores it, prints a table. |
 
 `scripts/run.py` walks the four stages in order and prints which one it is in.
+`scripts/ui.py` does the same from a web page, and adds scoring and comparison.
 
 ## Quick start
 
@@ -30,6 +31,30 @@ python -m venv .venv            # then activate it
 pip install -r requirements.txt
 python -m pytest -q
 
+python scripts/ui.py            # then open http://127.0.0.1:8770
+```
+
+## The UI
+
+Local web app, standard library only, reachable from this computer only
+(127.0.0.1). Five tabs:
+
+| Tab | What you do there |
+|---|---|
+| Run | Pick a data slice, a model and a prompt, set repeats and mode, and start a run. The log shows each stage live. Runs go one at a time. |
+| Results & scoring | Every run, filterable. Open one to read the card, check each claim against the answers it cites (supported / not supported), and rate usefulness, trustworthiness and completeness 1-5, each on its own. "Score blind" picks a random unscored run and hides the model, the prompt and the automatic scores until you save. |
+| Matrix | Every prompt x model combination, with the mean of any automatic score or your ratings. Click a cell to see its runs. |
+| Prompts | See exactly what each variant sends, with the changes against P0 highlighted. Add a variant by declaring text changes (with a live preview and checks), or remove one. |
+| Settings | Endpoint URL and API key (saved in `.env`), model ids and optional prices per model, and the tokens and euros used against the budget. |
+
+Runs land in `out/results.jsonl` and your scores in `out/scores.jsonl`.
+Saving a score again keeps the old one as history. Each run keeps a copy of
+its prompt variant's edits, so removing a variant never makes old runs
+unreadable.
+
+## Command line
+
+```bash
 python scripts/run.py --responses PATH [--truth PATH] --model mock:good \
                       [--variant P0] [--repeats N] [--mode single|mapreduce] \
                       [--theme NAME] [--temperature T] [--max-tokens N]
@@ -64,15 +89,35 @@ A missing file is an error, never a reason to generate something.
 Ground truth is optional (`--truth`, JSON):
 
 ```json
-{"theme": "Teachers",
- "planted": {"Teachers": 12, "Support / Mentoring": 6},
- "minority_theme": "Support / Mentoring",
- "absent_theme": "Professional Practice",
- "labels": {"E0001": "Teachers", "E0002": null}}
+{"theme": "Examination & Assessment",
+ "planted": {"Late feedback": 20, "Resits": 6},
+ "minority_theme": "Resits",
+ "absent_theme": "Alignment between exams and the content taught",
+ "labels": {"E0001": "Late feedback", "E0002": null},
+ "off_theme_ids": ["E0007"]}
 ```
 
-`labels` is optional and only feeds evidence support. Without a truth file,
-the four metrics that need it show `-` and everything else still runs.
+`labels` and `off_theme_ids` are optional. Without a truth file, the five
+metrics that need it show `-` and everything else still runs.
+
+### Planted test slices
+
+The test slices are generated outside this repo, by `generate.py` in the
+`nse-genbench-data` folder next to it, into `data/` (ignored by git). One
+slice is what the group pipeline hands the model for one theme, so the
+planted structure is **subthemes inside that theme**:
+
+| Slice | Answers | Planted |
+|---|---|---|
+| EA-60 | 60, single-pass | Examination & Assessment: late feedback 20, unclear criteria 12, exam scheduling 10, resits 6 (the minority), 6 noise, 6 off-theme |
+| EA-240 | 240, map-reduce at exactly the cap | the same subthemes; resits 7 (2.9%), 30 noise, 33 off-theme |
+
+One subtheme, alignment between exams and the content taught, is never
+planted: any mention of it is invented. Off-theme answers come from other
+themes and are sent as "ambiguous"; the prompt says to ignore them, so citing
+one is a scope error. Before writing anything, the generator checks every
+answer against the keyword probes, so no answer can contain the absent
+subtheme's words or another subtheme's.
 
 ## Stage 2 - Prompt
 
@@ -158,6 +203,7 @@ invalid card.
 | Hallucination (absent theme) | yes |
 | Evidence-ID validity | no |
 | Evidence support (weak proxy) | yes (`labels`) |
+| Off-theme answers cited | yes (`off_theme_ids`) |
 | Privacy leakage (8-gram overlap) | no |
 | Stability (Jaccard over repeats) | no |
 | Output language | no |
@@ -168,9 +214,15 @@ tests assert them, with and without ground truth. That is what shows the
 scorer works before any model runs.
 
 Coverage, minority and hallucination use the keyword probes in
-`config/probes.yml`. Keyword matching is fragile and the probes overlap
-across themes; it is used because it is transparent and bilingual. A theme
-with no probes is never counted as surfaced.
+`config/probes.yml`, for themes and for the subthemes of the planted slices.
+Keyword matching is fragile and the probes overlap across themes; it is used
+because it is transparent and bilingual. A theme with no probes is never
+counted as surfaced.
+
+Human scores (from the UI) are kept apart from the automatic ones: three
+ratings judged separately, never blended into one "quality" number, plus a
+yes/no claim check per subtheme, which is the human anchor for a later
+automatic faithfulness metric.
 
 ## Rules
 
@@ -193,6 +245,11 @@ genbench/runners.py    stage 3
 genbench/schema.py     stage 4, card schema
 genbench/metrics.py    stage 4
 genbench/report.py     stage 4, results table
-scripts/run.py         one run, all four stages
+genbench/runs.py       one run through all four stages (used by run.py and the UI)
+genbench/store.py      results and human scores, matrix and budget
+genbench/config_io.py  careful writers for .env and config/models.yml
+genbench/ui/           the web UI: server.py and static/ (HTML, CSS, JS)
+scripts/run.py         one run from the command line
+scripts/ui.py          start the UI
 tests/                 tests; tests/golden/ holds the group's rendered prompts
 ```

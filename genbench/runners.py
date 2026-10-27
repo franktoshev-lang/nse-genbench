@@ -210,8 +210,8 @@ class ModelConfig:
         return cls(**settings)
 
 
-def load_model_settings(path=MODELS_CONFIG) -> dict[str, dict]:
-    """The models under test, keyed by the name used with run.py --model."""
+def load_models_config(path=MODELS_CONFIG) -> dict:
+    """The whole models file: {"budget_eur": ..., "models": {key: settings}}."""
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     models = data.get("models") or {}
     for key, spec in models.items():
@@ -219,7 +219,16 @@ def load_model_settings(path=MODELS_CONFIG) -> dict[str, dict]:
             raise ValueError(f"{path}: {key}: token_limit_param must be one of {TOKEN_LIMIT_PARAMS}")
         if not isinstance(spec.get("temperature", True), bool):
             raise ValueError(f"{path}: {key}: temperature must be true or false")
-    return models
+        for price in ("price_in_per_million", "price_out_per_million"):
+            value = spec.get(price)
+            if value is not None and (not isinstance(value, (int, float)) or value < 0):
+                raise ValueError(f"{path}: {key}: {price} must be a non-negative number or null")
+    return {"budget_eur": data.get("budget_eur"), "models": models}
+
+
+def load_model_settings(path=MODELS_CONFIG) -> dict[str, dict]:
+    """The models under test, keyed by the name used with run.py --model."""
+    return load_models_config(path)["models"]
 
 
 class ResponseCache:

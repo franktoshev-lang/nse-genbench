@@ -127,3 +127,9 @@ def test_malformed_card_is_flagged(with_truth, responses, truth, probes):
     sc = score({"summary": 1, "oops": True}, responses, truth if with_truth else None, probes)
     assert sc.structure["valid"] is False
     assert any(p.startswith("missing:") for p in sc.structure["problems"])
+
+# ── off-theme citations ────────────────────────────────────────────────────
+def test_off_theme_citations_are_counted(responses, truth, probes):
+    with_off_theme = {**truth, "off_theme_ids": ["E0003", "E0005"]}
+    assert _score("good", responses, with_off_theme, probes).off_theme == {"n_cited": 1, "ids": ["E0003"]}
+    assert _score("good", responses, truth, probes).off_theme == {"n_cited": None, "ids": None}

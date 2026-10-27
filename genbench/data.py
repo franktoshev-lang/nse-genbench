@@ -106,6 +106,8 @@ def load_truth(path) -> dict | None:
       absent_theme    str              must not be one of planted
       labels          {evidence_id: theme | null}   optional, per response;
                                        null for low-information responses
+      off_theme_ids   [evidence_id]    optional: answers from another theme,
+                                       which the card should not cite
       theme, id       str              optional
     """
     if path is None:
@@ -133,4 +135,8 @@ def load_truth(path) -> dict | None:
     labels = truth.get("labels")
     if labels is not None and not isinstance(labels, dict):
         raise DataError(f"{p}: 'labels' must be an object of evidence_id -> theme or null")
+    off_theme = truth.get("off_theme_ids")
+    if off_theme is not None and (not isinstance(off_theme, list)
+                                  or not all(isinstance(i, str) for i in off_theme)):
+        raise DataError(f"{p}: 'off_theme_ids' must be a list of evidence ids")
     return truth

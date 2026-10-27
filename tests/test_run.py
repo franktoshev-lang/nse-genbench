@@ -48,7 +48,7 @@ def test_full_run_with_truth(run_main, fixture_paths, capsys, out_dir):
     assert stage_order(out) == [1, 2, 3, 4]
     assert "[2 prompt] single" in out and "[3 model ] mock:good" in out and "[4 answer] single" in out
     assert "variant P0 (verbatim)" in out
-    assert table_rows(out, "mock:good") == [["mock:good", "0", "yes", "1.000", "yes", "no",
+    assert table_rows(out, "mock:good") == [["mock:good", "0", "yes", "1.000", "yes", "no", "-",
                                              "1.000", "1.000", "0.000", "nl", "87"]]
     [record] = results(out_dir)
     assert (record["slice"], record["variant"], record["sample"]) == ("fixture", "P0", 0)

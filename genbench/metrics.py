@@ -4,10 +4,11 @@ No model, no GPU, no humans. That is the point: the measurement apparatus
 can be built and validated before any inference runs, by scoring
 hand-written cards whose correct scores are known.
 
-Four metrics need ground truth: coverage, minority preservation and
-hallucination need to know what was planted, and evidence support needs the
-per-response labels. Without a truth file they return None. Everything else
-needs only the card and the responses that were supplied.
+Five metrics need ground truth: coverage, minority preservation and
+hallucination need to know what was planted, evidence support needs the
+per-response labels, and off-theme citations need to know which answers
+belong to another theme. Without that information they return None.
+Everything else needs only the card and the responses that were supplied.
 """
 from __future__ import annotations
 
@@ -154,6 +155,21 @@ def evidence_support(card: dict, truth: dict | None, themes_cfg: dict) -> dict:
     }
 
 
+def off_theme_citations(card: dict, truth: dict | None) -> dict:
+    """Cited answers that belong to another theme.
+
+    The group prompt says to ignore candidate evidence that is not relevant,
+    so every cited off-theme answer is a scope error. Needs the truth file's
+    off_theme_ids; without them it returns None.
+    """
+    ids = (truth or {}).get("off_theme_ids")
+    if ids is None:
+        return {"n_cited": None, "ids": None}
+    off_theme = set(ids)
+    cited = [c for c in cited_ids(card) if c in off_theme]
+    return {"n_cited": len(cited), "ids": sorted(set(cited))}
+
+
 # ── 6. privacy leakage ──────────────────────────────────────────────────────
 def leakage(card: dict, responses, n: int = 8) -> dict:
     """Max n-gram overlap between generated prose and any SINGLE response.
@@ -253,6 +269,7 @@ class Scorecard:
     leakage: dict
     language: dict
     verbosity: dict
+    off_theme: dict
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -267,6 +284,7 @@ class Scorecard:
             "hallucinated_absent": self.absent["hallucinated"],
             "evidence_validity": self.evidence["validity"],
             "evidence_support": self.support["support_rate"],
+            "off_theme_cited": self.off_theme["n_cited"],
             "max_leakage": self.leakage["max_overlap"],
             "lang": self.language["dominant"],
             "words": self.verbosity["words"],
@@ -275,7 +293,7 @@ class Scorecard:
 
 def score(card: dict, responses, truth: dict | None, themes_cfg: dict,
           slice_id: str | None = None) -> Scorecard:
-    """truth=None is allowed: the four truth metrics then come back as None."""
+    """truth=None is allowed: the truth metrics then come back as None."""
     responses = _as_dicts(responses)
     return Scorecard(
         slice_id=slice_id or (truth or {}).get("id") or "-",
@@ -288,4 +306,5 @@ def score(card: dict, responses, truth: dict | None, themes_cfg: dict,
         leakage=leakage(card, responses),
         language=output_language(card),
         verbosity=verbosity(card),
+        off_theme=off_theme_citations(card, truth),
     )

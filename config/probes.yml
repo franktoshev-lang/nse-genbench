@@ -23,3 +23,32 @@ themes:
 
   - name: "Professional Practice"
     probes: ["stage", "werkveld", "beroepspraktijk", "praktijk", "bedrijf", "internship", "placement", "professional practice", "industry"]
+
+  # ── Subthemes of Examination & Assessment ─────────────────────────────
+  # Used by the planted EA slices, where coverage, minority and hallucination
+  # are measured on subthemes inside one theme. Chosen to avoid known traps:
+  # no "wacht" (inside "verwachting"), no "align"/"mismatch" for the absent
+  # subtheme (an accurate summary of the rubric complaint could use them).
+
+  - name: "Late feedback"
+    probes: ["te laat", "veel te lang", "duurt lang", "wachten", "nakijken", "too late", "so late",
+             "late feedback", "feedback late", "feedback is late", "arrives late", "comes late",
+             "delay", "slow", "waiting", "turnaround", "timely", "takes too long"]
+
+  - name: "Unclear assessment criteria"
+    probes: ["criteria", "rubric", "beoordelingscriteria", "eisen", "willekeurig", "requirements",
+             "arbitrary", "inconsistent", "different teachers", "verschillend"]
+
+  - name: "Exam scheduling"
+    probes: ["dezelfde week", "dezelfde dag", "op één dag", "toetsweek", "tentamenweek", "toetsplanning",
+             "overvol", "same week", "same day", "crammed", "clustered", "exam week", "scheduling",
+             "back-to-back", "too many exams", "exam dates"]
+
+  - name: "Resits"
+    probes: ["herkans", "herexamen", "tweede kans", "resit", "re-sit", "retake", "second attempt",
+             "make-up exam"]
+
+  - name: "Alignment between exams and the content taught"
+    probes: ["lesstof", "aansluiting op de les", "niet behandeld", "not covered in class", "not taught",
+             "was not taught", "were not taught", "covered in class", "covered in the lessons",
+             "taught in class"]

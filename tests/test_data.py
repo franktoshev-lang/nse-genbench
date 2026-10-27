@@ -68,6 +68,7 @@ def test_missing_truth_file_fails_clearly(tmp_path):
     ({"minority_theme": "Special Circumstances"}, "minority_theme 'Special Circumstances' is not in"),
     ({"absent_theme": "Teachers"}, "absent_theme 'Teachers' is also in"),
     ({"labels": ["E0001"]}, "'labels' must be"),
+    ({"off_theme_ids": "E0001"}, "'off_theme_ids' must be"),
 ])
 def test_inconsistent_truth_is_rejected(tmp_path, change, message):
     path = write_json(tmp_path / "t.json", {**FIXTURE_TRUTH, **change})

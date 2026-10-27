@@ -1,15 +1,20 @@
 # The four models under test (final, 27 October 2026). The endpoints are
-# supplied by the university. run.py --model <key> uses the settings below;
-# the endpoint itself (MODEL_BASE_URL, MODEL_API_KEY) comes from .env.
+# supplied by the university. run.py --model <key> and the UI use the
+# settings below; the endpoint itself (MODEL_BASE_URL, MODEL_API_KEY) comes
+# from .env.
 #
-#   model_id           the exact id the endpoint expects. Filled in with the
-#                      vendor's id where one is known; replace it if the
-#                      university endpoint uses another name.
-#   temperature        false: never send a temperature (the model rejects it)
-#   token_limit_param  the field name this model accepts for the output limit
+#   model_id               the exact id the endpoint expects. Filled in with
+#                          the vendor's id where one is known; replace it if
+#                          the university endpoint uses another name.
+#   temperature            false: never send a temperature (the model rejects it)
+#   token_limit_param      the field name this model accepts for the output limit
+#   price_in_per_million   EUR per million input tokens, if known (for the
+#   price_out_per_million  budget display only; leave null if unknown)
 #
 # Reasoning: every model runs at its provider's default for now (decided
 # 27 October 2026, provisional). Reasoning tokens are recorded per run.
+
+budget_eur: 15
 
 models:
   gemma-4-12b:
@@ -18,6 +23,8 @@ models:
     model_id: ""            # no standard id; take it from the university
     temperature: true
     token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
 
   gemma-4-31b:
     name: Gemma 4 31B
@@ -25,6 +32,8 @@ models:
     model_id: ""            # no standard id; take it from the university
     temperature: true
     token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
 
   claude-opus-5-5:
     name: Claude Opus 5.5
@@ -32,6 +41,8 @@ models:
     model_id: claude-opus-5-5
     temperature: true
     token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
 
   gpt-6-astra:
     name: GPT-6 Astra
@@ -43,3 +54,5 @@ models:
     # Third-party reports say OpenAI reasoning models reject max_tokens and
     # want max_completion_tokens. Confirm with the first test call.
     token_limit_param: max_completion_tokens
+    price_in_per_million: null
+    price_out_per_million: null

@@ -71,3 +71,58 @@ def test_edit_count_must_match_the_baseline_code(tmp_path):
                     "    replace: [['Gemma 4', 'Model', 1]]\n", encoding="utf-8")
     with pytest.raises(VariantError, match="occurs .* times in the baseline, declared 1"):
         prompts_for("X", path)
+
+
+# ── adding and removing variants (the UI's Prompts tab) ───────────────────
+import shutil
+from pathlib import Path
+
+from genbench.variants import check_edits, delete_variant, preview, save_variant
+
+
+@pytest.fixture
+def variants_file(tmp_path):
+    path = tmp_path / "variants.yml"
+    shutil.copy(Path(__file__).resolve().parents[1] / "config" / "variants.yml", path)
+    return path
+
+
+def test_preview_shows_the_change_against_p0():
+    data = preview([("Respond EXACTLY in this JSON format:", "Answer in this JSON format:")])
+    assert data["problems"] == []
+    assert {"op": "ins", "text": "Answer"} in data["diff"]
+    # 6: the single, map and reduce prompts, plus the three unused subtheme prompts
+    assert data["edits"] == [["Respond EXACTLY in this JSON format:", "Answer in this JSON format:", 6]]
+
+def test_preview_explains_what_is_wrong():
+    assert "not in the baseline prompt" in preview([("no such text anywhere", "x")])["problems"][0]
+    assert "same text" in preview([("Gemma 4 task:", "Gemma 4 task:")])["problems"][0]
+    _, problems = check_edits([("def build_prompt(", "def build_prompt2(")])
+    assert "not in any prompt the model sees" in problems[0]
+
+def test_saved_variant_can_be_used_and_removed(variants_file):
+    save_variant("P1-test", "schema_order", "test variant",
+                 [("Respond EXACTLY in this JSON format:", "Answer in this JSON format:")], variants_file)
+    assert "P1-test" in load_variants(variants_file)
+    module = prompts_for("P1-test", variants_file)
+    assert "Answer in this JSON format:" in module.build_prompt("Teachers", [])
+    delete_variant("P1-test", variants_file)
+    assert "P1-test" not in load_variants(variants_file)
+    assert "P0-neutral" in load_variants(variants_file)
+
+@pytest.mark.parametrize("variant_id, dimension, edits, message", [
+    ("P0-neutral", "x", [("Gemma 4 task:", "Task:")], "already exists"),
+    ("bad name!", "x", [("Gemma 4 task:", "Task:")], "name:"),
+    ("P2", "", [("Gemma 4 task:", "Task:")], "dimension"),
+    ("P2", "a, b", [("Gemma 4 task:", "Task:")], "dimension"),
+    ("P2", "x", [], "at least one change"),
+])
+def test_bad_variants_are_not_saved(variants_file, variant_id, dimension, edits, message):
+    before = variants_file.read_text(encoding="utf-8")
+    with pytest.raises(VariantError, match=message):
+        save_variant(variant_id, dimension, "", edits, variants_file)
+    assert variants_file.read_text(encoding="utf-8") == before
+
+def test_baseline_cannot_be_removed(variants_file):
+    with pytest.raises(VariantError, match="cannot be removed"):
+        delete_variant("P0", variants_file)
