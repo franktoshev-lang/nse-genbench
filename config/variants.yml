@@ -1,0 +1,27 @@
+# Prompt variants for the generation benchmark.
+#
+# P0 is the group pipeline's prompt code, verbatim (genbench/prompts.py): the
+# baseline control. Every other variant is P0 with the text edits listed under
+# `replace` applied to that code, and changes exactly one `dimension`.
+#
+# Each edit is [old, new, count]: `old` must occur exactly `count` times in the
+# baseline code, so an edit can never touch more places than declared.
+# tests/test_variants.py checks this, and that a variant's rendered prompts
+# equal P0's with the declared edits and nothing else.
+
+variants:
+  P0:
+    dimension: none
+    description: >
+      The group pipeline's prompts at r-huijts/NSE_Applied_GenAI@6a48c37,
+      unchanged, including the known defects. The baseline control.
+
+  P0-neutral:
+    dimension: model_name
+    description: >
+      Removes the three hardcoded "Gemma 4" labels (defect D-1), so a model is
+      not told it is Gemma 4. Used for every comparison across models.
+    replace:
+      - ["Gemma 4 task: act as", "Task: act as", 1]
+      - ["Gemma 4 output rules:", "Output rules:", 1]
+      - ["Gemma 4 response contract:", "Response contract:", 1]

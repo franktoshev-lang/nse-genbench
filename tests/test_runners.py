@@ -10,7 +10,7 @@ import pytest
 
 from genbench.runners import (DEFAULT_MAX_TOKENS, FORBIDDEN_PAYLOAD_KEYS, ChatCompletionsRunner,
                               ModelConfig, ModelNotConfigured, ModelRequestError, ResponseCache,
-                              read_dotenv)
+                              load_model_settings, read_dotenv)
 
 URL = "http://127.0.0.1:8080/v1"
 
@@ -177,3 +177,47 @@ def test_cache_record_keeps_the_raw_response_but_not_the_prompt(tmp_path):
     assert "SECRET PROMPT TEXT" not in text
     assert record["response"]["choices"][0]["message"]["content"] == "ANSWER"
     assert len(record["prompt_sha256"]) == 64 and record["request"]["temperature"] == 0.1
+
+# ── per-model request settings ─────────────────────────────────────────────
+def test_a_model_can_be_set_to_never_receive_a_temperature():
+    runner, _ = make(FakeTransport(ok()), send_temperature=False)
+    assert "temperature" not in runner.payload("p")
+
+def test_the_output_limit_field_name_is_configurable():
+    runner, _ = make(FakeTransport(ok()), token_limit_param="max_completion_tokens", max_tokens=9000)
+    payload = runner.payload("p")
+    assert payload["max_completion_tokens"] == 9000 and "max_tokens" not in payload
+    with pytest.raises(ValueError, match="token_limit_param"):
+        ModelConfig(base_url=URL, model="m", token_limit_param="limit")
+
+def test_request_shape_is_part_of_the_cache_key(tmp_path):
+    cache = ResponseCache(tmp_path)
+    transport = FakeTransport(ok("A"), ok("B"), ok("C"))
+    assert make(transport, cache=cache)[0].generate("p") == "A"
+    assert make(transport, cache=cache, send_temperature=False)[0].generate("p") == "B"
+    assert make(transport, cache=cache, token_limit_param="max_completion_tokens")[0].generate("p") == "C"
+
+def test_token_usage_is_kept_from_fresh_and_cached_answers(tmp_path):
+    usage = {"prompt_tokens": 120, "completion_tokens": 30,
+             "completion_tokens_details": {"reasoning_tokens": 10}}
+    body = json.dumps({"choices": [{"message": {"content": "x"}, "finish_reason": "stop"}],
+                       "usage": usage})
+    cache = ResponseCache(tmp_path)
+    runner, _ = make(FakeTransport((200, body, {})), cache=cache)
+    runner.generate("p")
+    assert runner.last_usage == usage
+    again, _ = make(FakeTransport((500, "must not be called", {})), cache=cache)
+    again.generate("p")
+    assert again.last_from_cache and again.last_usage == usage
+
+def test_models_config_holds_the_four_models_under_test():
+    models = load_model_settings()
+    assert list(models) == ["gemma-4-12b", "gemma-4-31b", "claude-opus-5-5", "gpt-6-astra"]
+    assert models["gemma-4-12b"]["role"].startswith("baseline")
+    assert models["gpt-6-astra"]["temperature"] is False
+
+def test_bad_models_config_is_rejected(tmp_path):
+    path = tmp_path / "models.yml"
+    path.write_text("models:\n  m:\n    token_limit_param: limit\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="token_limit_param"):
+        load_model_settings(path)

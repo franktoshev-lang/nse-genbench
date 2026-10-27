@@ -75,3 +75,20 @@ def test_unparseable_answer_names_the_step():
 
 def test_same_input_same_prompts():
     assert run(130)[1] == run(130)[1]
+
+def test_a_variant_prompt_module_is_used_for_every_call():
+    from genbench.variants import prompts_for
+    runner = RecordingRunner()
+    generate_card(runner, "Teachers", placeholders(61), prompt_module=prompts_for("P0-neutral"),
+                  log=lambda _: None)
+    assert len(runner.prompts) == 3
+    assert all("Gemma" not in p for p in runner.prompts)
+
+def test_calls_record_usage_even_when_the_answer_cannot_be_parsed():
+    runner = RecordingRunner(answer="no json at all")
+    runner.last_usage = {"prompt_tokens": 50, "completion_tokens": 5}
+    with pytest.raises(AnswerParseError) as info:
+        generate_card(runner, "Teachers", placeholders(6), log=lambda _: None)
+    assert info.value.calls == [{"step": "single", "n_responses": 6, "prompt_chars": len(runner.prompts[0]),
+                                 "answer_chars": 14, "from_cache": False,
+                                 "usage": {"prompt_tokens": 50, "completion_tokens": 5}}]

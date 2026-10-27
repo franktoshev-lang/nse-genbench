@@ -33,10 +33,12 @@ MODES = ("single", "mapreduce")
 class AnswerParseError(RuntimeError):
     """The group's parse_llm_json could not recover a JSON object."""
 
-    def __init__(self, step: str, raw: str, cause: Exception | None = None) -> None:
+    def __init__(self, step: str, raw: str, cause: Exception | None = None,
+                 calls: list[dict] | None = None) -> None:
         super().__init__(f"{step}: could not parse the model answer as a JSON object ({cause})")
         self.step = step
         self.raw = raw
+        self.calls = calls or []    # the calls made so far, so their tokens still count
 
 
 def group_default_mode(n_analyzed: int) -> str:
@@ -54,13 +56,16 @@ class Generation:
 
 
 def generate_card(runner, theme: str, responses: list[Response], *,
-                  mode: str | None = None, log: Callable[[str], None] = print) -> Generation:
+                  mode: str | None = None, prompt_module=None,
+                  log: Callable[[str], None] = print) -> Generation:
     """Turn responses into one dashboard card the way the group pipeline does.
 
     mode=None follows the group's own choice. Forcing a mode that the group
     would not pick for this many responses is allowed but changes the
-    condition, so the caller should report it.
+    condition, so the caller should report it. prompt_module is a variant
+    from genbench.variants; the default is the verbatim baseline.
     """
+    pm = prompt_module or prompts
     evidence = [r.as_dict() for r in responses]
     selected = evidence[:MAX_DOCUMENTS]
     mode = mode or group_default_mode(len(selected))
@@ -73,32 +78,33 @@ def generate_card(runner, theme: str, responses: list[Response], *,
         raw = runner.generate(prompt)
         cached = getattr(runner, "last_from_cache", False)
         log(f"  [3 model ] {runner.key}{' (from cache)' if cached else ''}: {len(raw):,} chars back")
-        try:
-            parsed = prompts.parse_llm_json(raw)
-        except Exception as exc:
-            raise AnswerParseError(step, raw, exc) from exc
-        if not isinstance(parsed, dict):
-            raise AnswerParseError(step, raw, TypeError(f"got {type(parsed).__name__}"))
-        log(f"  [4 answer] {step}: JSON object with {len(parsed)} keys")
         gen.calls.append({"step": step, "n_responses": n_responses, "prompt_chars": len(prompt),
-                          "answer_chars": len(raw), "from_cache": cached})
+                          "answer_chars": len(raw), "from_cache": cached,
+                          "usage": getattr(runner, "last_usage", None)})
+        try:
+            parsed = pm.parse_llm_json(raw)
+        except Exception as exc:
+            raise AnswerParseError(step, raw, exc, gen.calls) from exc
+        if not isinstance(parsed, dict):
+            raise AnswerParseError(step, raw, TypeError(f"got {type(parsed).__name__}"), gen.calls)
+        log(f"  [4 answer] {step}: JSON object with {len(parsed)} keys")
         return parsed
 
     if mode == "single":
-        gen.card = call("single", prompts.build_prompt(theme, selected), len(selected))
+        gen.card = call("single", pm.build_prompt(theme, selected), len(selected))
         return gen
 
     batches = [selected[i:i + BATCH_DOCUMENTS] for i in range(0, len(selected), BATCH_DOCUMENTS)]
     batch_summaries = []
     for i, batch in enumerate(batches, start=1):
-        prompt = prompts.build_batch_summary_prompt(
+        prompt = pm.build_batch_summary_prompt(
             theme, batch, batch_number=i, total_batches=len(batches))
         parsed = call(f"map {i}/{len(batches)}", prompt, len(batch))
         parsed["batch_number"] = i
         parsed["source_document_count"] = len(batch)
         batch_summaries.append(parsed)
 
-    reduce_prompt = prompts.build_reduce_prompt(
+    reduce_prompt = pm.build_reduce_prompt(
         theme, batch_summaries, source_document_count=len(selected))
     gen.card = call("reduce", reduce_prompt, len(selected))
     return gen

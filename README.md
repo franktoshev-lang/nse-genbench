@@ -31,12 +31,18 @@ pip install -r requirements.txt
 python -m pytest -q
 
 python scripts/run.py --responses PATH [--truth PATH] --model mock:good \
-                      [--mode single|mapreduce] [--theme NAME]
+                      [--variant P0] [--repeats N] [--mode single|mapreduce] \
+                      [--theme NAME] [--temperature T] [--max-tokens N]
 ```
 
 `--model mock:good`, `mock:bad` or `mock:leaky` runs the whole pipeline with
-no model and no network. Any other value is a model name for the endpoint in
-`.env`.
+no model and no network. A key from `config/models.yml` (`gemma-4-12b`,
+`gemma-4-31b`, `claude-opus-5-5`, `gpt-6-astra`) uses that model's settings.
+Any other value is a model id for the endpoint in `.env`.
+
+`--repeats N` runs the same condition N times as separate requests and prints
+the spread. Every run, with its scores, card and token counts, is appended to
+`out/results.jsonl`.
 
 ## Stage 1 - Data
 
@@ -75,8 +81,17 @@ the four metrics that need it show `-` and everything else still runs.
 `src/config/themes.py`, at commit `6a48c37`. It is the **baseline control**,
 so it keeps the group's known problems on purpose: "Gemma 4" hardcoded three
 times, `summary` as the first schema key, the English-output rule, and no
-caps or evidence-ID rule in the map prompt. Variants will be a separate
-layer; none exist yet.
+caps or evidence-ID rule in the map prompt.
+
+Variants are a separate layer (`config/variants.yml`, `genbench/variants.py`).
+Each variant is the baseline code with declared text edits applied, and
+changes exactly one dimension. `tests/test_variants.py` fails if a variant's
+prompts differ from P0's in anything not declared.
+
+| Variant | Changes |
+|---|---|
+| `P0` | nothing: the group's prompts, verbatim |
+| `P0-neutral` | removes the three "Gemma 4" labels, so no model is told it is Gemma. Used for every comparison across models |
 
 `tests/test_prompts.py` checks that every prompt, plus `parse_llm_json`,
 renders byte-identical to the group repo: against a snapshot of the group's
@@ -95,10 +110,18 @@ Configured in `.env` (copy `.env.example`):
 ```
 MODEL_BASE_URL=   # e.g. http://127.0.0.1:8080/v1 for llama-server
 MODEL_API_KEY=
-MODEL_NAME=
+MODEL_NAME=       # only for --model values that are not in config/models.yml
 ```
 
 With `MODEL_BASE_URL` empty, any non-mock run stops with a clear error.
+
+The four models under test are in `config/models.yml`: Gemma 4 12B (the
+baseline), Gemma 4 31B, Claude Opus 5.5 and GPT-6 Astra. Per model it holds
+the id the endpoint expects, whether the model takes a temperature, and the
+field name of its output limit. GPT-6 Astra gets no temperature (it cannot
+turn reasoning off, and rejects one while reasoning) and `max_completion_tokens`.
+Reasoning stays at each provider's default for now; reasoning tokens are
+recorded per run.
 
 Settings are always sent explicitly, never inherited from the group's model
 registry:
@@ -106,7 +129,7 @@ registry:
 | Setting | Default | Why |
 |---|---|---|
 | `max_tokens` | 8192 (`--max-tokens`) | The group's own code default. Its registry uses 12768-18768 with thinking on. |
-| `temperature` | 0.1 (`--temperature`) | The group's code default. Its registry overrides it to 1.0 on every model; that is a condition to test, not to inherit. |
+| `temperature` | 0.1 (`--temperature`) | The group's code default. Its registry overrides it to 1.0 on every model; that is a condition to test, not to inherit. Not sent to a model configured without one. |
 | `seed` | 42 (`GENBENCH_SEED`) | Same input, same output where the provider honours it. |
 | tools / web search | never sent | The payload is built from an allowlist. |
 
@@ -115,9 +138,11 @@ pipeline. The client retries timeouts, connection errors, 429 and 5xx with
 backoff, and fails at once on other errors. It uses only the standard library.
 
 Every raw response is cached under `out/cache/`, keyed by model, prompt hash
-and an input hash (endpoint, max_tokens, temperature, seed, repeat index), so
-scoring can be re-run without calling the model again. The prompt text is
-not stored; the model's answers are, so treat `out/` as data.
+and an input hash (endpoint, output limit and its field name, temperature,
+seed, repeat index), so scoring can be re-run without calling the model
+again, and a repeated run costs nothing. The prompt text is not stored; the
+model's answers are, so treat `out/` as data. Each run reports the tokens of
+the calls that actually reached the endpoint.
 
 ## Stage 4 - Answer + score
 
@@ -158,9 +183,11 @@ with no probes is never counted as surfaced.
 
 ```
 config/probes.yml      keyword probes used by the scorer
-config/models.yml      candidate model slate (notes; not read by code)
+config/models.yml      the four models under test and their request settings
+config/variants.yml    prompt variants and their declared edits
 genbench/data.py       stage 1
 genbench/prompts.py    stage 2, verbatim group prompts
+genbench/variants.py   stage 2, variants layered on the verbatim prompts
 genbench/pipeline.py   stage 2, single-pass / map-reduce
 genbench/runners.py    stage 3
 genbench/schema.py     stage 4, card schema

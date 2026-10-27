@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
+import yaml
+
 
 class Runner(Protocol):
     key: str
@@ -106,6 +108,9 @@ DEFAULT_SEED = 42
 DEFAULT_TIMEOUT_S = 600.0
 DEFAULT_MAX_RETRIES = 3
 
+TOKEN_LIMIT_PARAMS = ("max_tokens", "max_completion_tokens")
+MODELS_CONFIG = Path(__file__).resolve().parents[1] / "config" / "models.yml"
+
 RETRY_STATUSES = frozenset({408, 409, 429, 500, 502, 503, 504})
 # Never sent: anything that lets the model call tools or search the web.
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
@@ -158,6 +163,10 @@ class ModelConfig:
     seed: int | None = DEFAULT_SEED
     timeout_s: float = DEFAULT_TIMEOUT_S
     max_retries: int = DEFAULT_MAX_RETRIES
+    # Per-model request shape (config/models.yml): some models reject a
+    # temperature, or want the output limit under another field name.
+    send_temperature: bool = True
+    token_limit_param: str = "max_tokens"
 
     def __post_init__(self) -> None:
         if not self.base_url.strip():
@@ -178,6 +187,9 @@ class ModelConfig:
             raise ValueError(f"temperature must be between 0 and 2, got {self.temperature!r}")
         if self.max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries!r}")
+        if self.token_limit_param not in TOKEN_LIMIT_PARAMS:
+            raise ValueError(f"token_limit_param must be one of {TOKEN_LIMIT_PARAMS}, "
+                             f"got {self.token_limit_param!r}")
 
     @classmethod
     def from_env(cls, dotenv_path=".env", environ=None, **overrides) -> "ModelConfig":
@@ -196,6 +208,18 @@ class ModelConfig:
         }
         settings.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**settings)
+
+
+def load_model_settings(path=MODELS_CONFIG) -> dict[str, dict]:
+    """The models under test, keyed by the name used with run.py --model."""
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    models = data.get("models") or {}
+    for key, spec in models.items():
+        if spec.get("token_limit_param", "max_tokens") not in TOKEN_LIMIT_PARAMS:
+            raise ValueError(f"{path}: {key}: token_limit_param must be one of {TOKEN_LIMIT_PARAMS}")
+        if not isinstance(spec.get("temperature", True), bool):
+            raise ValueError(f"{path}: {key}: temperature must be true or false")
+    return models
 
 
 class ResponseCache:
@@ -280,8 +304,9 @@ class ChatCompletionsRunner:
     """One client for any OpenAI-compatible /chat/completions endpoint.
 
     The request mirrors the group pipeline's: a single user message, no
-    system message. max_tokens, temperature and seed are always sent
-    explicitly; tool and web-search fields are never sent.
+    system message. The output limit, temperature and seed are always sent
+    explicitly, except a temperature for a model configured not to take one;
+    tool and web-search fields are never sent.
     """
 
     def __init__(self, config: ModelConfig, *, cache: ResponseCache | None = None,
@@ -292,6 +317,7 @@ class ChatCompletionsRunner:
         self.sample = sample
         self.key = config.model
         self.last_from_cache = False
+        self.last_usage: dict | None = None
         self._transport = transport or _urllib_post
         self._sleep = sleep
 
@@ -305,9 +331,10 @@ class ChatCompletionsRunner:
             "model": c.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "max_tokens": c.max_tokens,
-            "temperature": c.temperature,
+            c.token_limit_param: c.max_tokens,
         }
+        if c.send_temperature:
+            payload["temperature"] = c.temperature
         if c.seed is not None:
             payload["seed"] = c.seed
         if FORBIDDEN_PAYLOAD_KEYS & payload.keys():
@@ -318,7 +345,9 @@ class ChatCompletionsRunner:
         c = self.config
         return sha256_text(json.dumps({
             "base_url": c.base_url.rstrip("/"), "max_tokens": c.max_tokens,
-            "temperature": c.temperature, "seed": c.seed, "sample": self.sample,
+            "token_limit_param": c.token_limit_param,
+            "temperature": c.temperature if c.send_temperature else None,
+            "seed": c.seed, "sample": self.sample,
         }, sort_keys=True))
 
     def generate(self, prompt: str) -> str:
@@ -338,6 +367,8 @@ class ChatCompletionsRunner:
             }
             if self.cache:
                 self.cache.put(self.key, prompt_hash, input_hash, record)
+        usage = record["response"].get("usage")
+        self.last_usage = usage if isinstance(usage, dict) else None
         return _answer_text(record["response"], self.key)
 
     def _post(self, payload: dict) -> dict:

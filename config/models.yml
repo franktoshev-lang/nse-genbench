@@ -1,56 +1,45 @@
-# The slate. Sizes and ids verified against the NSE repo's
-# llama_cpp_models.py registry (commit 6a48c37).
+# The four models under test (final, 27 October 2026). The endpoints are
+# supplied by the university. run.py --model <key> uses the settings below;
+# the endpoint itself (MODEL_BASE_URL, MODEL_API_KEY) comes from .env.
 #
-# status: ready | needs_vram_check | needs_gguf_check | blocked
+#   model_id           the exact id the endpoint expects. Filled in with the
+#                      vendor's id where one is known; replace it if the
+#                      university endpoint uses another name.
+#   temperature        false: never send a temperature (the model rejects it)
+#   token_limit_param  the field name this model accepts for the output limit
+#
+# Reasoning: every model runs at its provider's default for now (decided
+# 27 October 2026, provisional). Reasoning tokens are recorded per run.
 
-slate:
-  - key: gemma4-12b
-    name: "Gemma 4 12B IT QAT"
-    repo_id: "unsloth/gemma-4-12B-it-qat-GGUF"
-    quant: "UD-Q4_K_XL"
-    size_gb: 6.2
-    role: baseline
-    status: ready
-    notes: "DEFAULT_LLM_MODEL in .env.example; only entry with recommended=True"
+models:
+  gemma-4-12b:
+    name: Gemma 4 12B
+    role: baseline, what the group pipeline deploys
+    model_id: ""            # no standard id; take it from the university
+    temperature: true
+    token_limit_param: max_tokens
 
-  - key: gemma4-e4b
-    name: "Gemma 4 E4B IT QAT"
-    repo_id: "unsloth/gemma-4-E4B-it-qat-GGUF"
-    quant: "UD-Q4_K_XL"
-    size_gb: 4.22
-    role: smaller
-    status: ready
+  gemma-4-31b:
+    name: Gemma 4 31B
+    role: larger model from the same family
+    model_id: ""            # no standard id; take it from the university
+    temperature: true
+    token_limit_param: max_tokens
 
-  - key: gemma4-26b-a4b
-    name: "Gemma 4 26B-A4B IT QAT (MoE)"
-    repo_id: "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
-    quant: "UD-Q4_K_XL"
-    size_gb: 16.9
-    role: larger
-    status: needs_vram_check
-    notes: "MoE, ~4B active. Registry rates speed Moderate vs 31B Slow"
+  claude-opus-5-5:
+    name: Claude Opus 5.5
+    role: frontier model, Anthropic
+    model_id: claude-opus-5-5
+    temperature: true
+    token_limit_param: max_tokens
 
-  - key: mistral-small-24b
-    name: "Mistral Small 24B Instruct"
-    repo_id: "TBC"
-    quant: "Q4_K_M"
-    size_gb: 13.5
-    role: licence_challenger
-    status: needs_gguf_check
-    notes: "Apache-2.0. Strongest open-weight result in arXiv 2608.09925"
-
-  - key: extractive
-    name: "Extractive baseline (no LLM)"
-    repo_id: null
-    quant: null
-    size_gb: 0
-    role: floor
-    status: ready
-    notes: "N most central responses by embedding similarity. The only entry that shows whether an LLM adds value at all."
-
-# Decoding settings. The repo overrides its own 0.1 default to 1.0 on all
-# five models; that override is variant P4, not a given.
-decoding:
-  repo_default:   { temperature: 1.0, top_p: 0.95, top_k: 64, enable_thinking: true }
-  low_variance:   { temperature: 0.3, top_p: 0.95, top_k: 64, enable_thinking: false }
-  deterministic:  { temperature: 0.1, top_p: 0.95, top_k: 64, enable_thinking: false }
+  gpt-6-astra:
+    name: GPT-6 Astra
+    role: frontier model, OpenAI
+    model_id: gpt-6-astra
+    # OpenAI's docs (checked 19 October 2026): Astra cannot set reasoning
+    # effort to "none", and temperature must be removed while reasoning is on.
+    temperature: false
+    # Third-party reports say OpenAI reasoning models reject max_tokens and
+    # want max_completion_tokens. Confirm with the first test call.
+    token_limit_param: max_completion_tokens
