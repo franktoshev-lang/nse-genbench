@@ -83,7 +83,8 @@ def test_page_and_state(ui):
     assert status == 200
     assert [s["id"] for s in state["slices"]] == ["fixture"]
     assert state["slices"][0]["theme"] == "Examination & Assessment"
-    assert [m["key"] for m in state["models"]] == ["gemma-4-12b", "gemma-4-31b", "claude-opus-5-5", "gpt-6-astra"]
+    assert [m["key"] for m in state["models"]] == ["gemma-4-12b", "gpt-5.6-sol", "claude-opus-5-5", "mistral-large-3",
+                                                   "deepseek-v4-flash", "gemma-4-31b", "gpt-6-astra"]
     assert not any(m["ready"] for m in state["models"])
     assert {v["id"] for v in state["variants"]} >= {"P0", "P0-neutral"}
 
@@ -123,7 +124,8 @@ def test_real_model_run_through_the_endpoint(ui):
     _, state = ui("GET", "/api/state")
     assert state["endpoint"] == {"base_url": "https://uni.example/v1", "api_key_set": True}
     ready = {m["key"]: m["ready"] for m in state["models"]}
-    assert ready == {"gemma-4-12b": False, "gemma-4-31b": False, "claude-opus-5-5": True, "gpt-6-astra": True}
+    assert ready == {"gemma-4-12b": False, "gpt-5.6-sol": True, "claude-opus-5-5": True, "mistral-large-3": True,
+                     "deepseek-v4-flash": True, "gemma-4-31b": False, "gpt-6-astra": True}
 
     job = run_and_wait(ui, model="gpt-6-astra", variant="P0-neutral")
     assert job["status"] == "done", job
@@ -143,7 +145,7 @@ def test_models_are_configured_from_the_ui(ui):
     gemma = next(m for m in state["models"] if m["key"] == "gemma-4-12b")
     assert gemma["ready"] and gemma["model_id"] == "google/gemma-4-12b-it"
     assert gemma["price_in_per_million"] == 0.1 and gemma["price_out_per_million"] is None
-    assert "# no standard id" in (ui.root / "config" / "models.yml").read_text(encoding="utf-8")
+    assert "# not on the Fontys endpoint yet" in (ui.root / "config" / "models.yml").read_text(encoding="utf-8")
     status, err = ui("POST", "/api/settings", {"base_url": "ftp://nope"})
     assert status == 400 and "http" in err["error"]
 

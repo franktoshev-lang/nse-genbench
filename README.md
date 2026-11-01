@@ -61,8 +61,8 @@ python scripts/run.py --responses PATH [--truth PATH] --model mock:good \
 ```
 
 `--model mock:good`, `mock:bad` or `mock:leaky` runs the whole pipeline with
-no model and no network. A key from `config/models.yml` (`gemma-4-12b`,
-`gemma-4-31b`, `claude-opus-5-5`, `gpt-6-astra`) uses that model's settings.
+no model and no network. A key from `config/models.yml` (e.g. `gpt-5.6-sol`,
+`claude-opus-5-5`, `mistral-large-3`, `deepseek-v4-flash`) uses that model's settings.
 Any other value is a model id for the endpoint in `.env`.
 
 `--repeats N` runs the same condition N times as separate requests and prints
@@ -160,11 +160,14 @@ MODEL_NAME=       # only for --model values that are not in config/models.yml
 
 With `MODEL_BASE_URL` empty, any non-mock run stops with a clear error.
 
-The four models under test are in `config/models.yml`: Gemma 4 12B (the
-baseline), Gemma 4 31B, Claude Opus 5.5 and GPT-6 Astra. Per model it holds
-the id the endpoint expects, whether the model takes a temperature, and the
-field name of its output limit. GPT-6 Astra gets no temperature (it cannot
-turn reasoning off, and rejects one while reasoning) and `max_completion_tokens`.
+The models under test are in `config/models.yml`. The endpoint is the Fontys
+Portkey gateway (`https://api.portkey.ai/v1`), which on 1 November 2026 serves
+four of them: GPT-5.6 Sol, Claude Opus 5.5, Mistral Large 3 and DeepSeek V4
+Flash. Gemma 4 12B (the baseline), Gemma 4 31B and GPT-6 Astra are listed but
+not on that endpoint yet. Per model the file holds the id the endpoint expects,
+whether the model takes a temperature, and the field name of its output limit,
+each checked with one tiny call: GPT-5.6 Sol and Claude Opus 5.5 reject a
+temperature, and GPT-5.6 Sol wants `max_completion_tokens`.
 Reasoning stays at each provider's default for now; reasoning tokens are
 recorded per run.
 

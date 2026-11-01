@@ -45,7 +45,7 @@ def test_model_field_changes_in_place_and_comments_survive(models_file):
     assert models["gpt-6-astra"]["price_in_per_million"] == 2.5
     assert models["gemma-4-31b"]["model_id"] == ""
     text = models_file.read_text(encoding="utf-8")
-    assert "# no standard id; take it from the university" in text
+    assert "# not on the Fontys endpoint yet" in text
     assert "# OpenAI's docs (checked 19 October 2026)" in text
 
 def test_empty_price_becomes_null(models_file):

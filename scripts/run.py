@@ -6,7 +6,7 @@
                         [--theme NAME] [--temperature T] [--max-tokens N]
 
 --model is mock:good | mock:bad | mock:leaky (no model at all), a key from
-config/models.yml (gemma-4-12b, gemma-4-31b, claude-opus-5-5, gpt-6-astra),
+config/models.yml (e.g. gpt-5.6-sol, claude-opus-5-5, mistral-large-3, deepseek-v4-flash),
 or any other model id for the endpoint in .env (MODEL_BASE_URL, MODEL_API_KEY).
 
 --variant picks a prompt variant from config/variants.yml (default P0, the

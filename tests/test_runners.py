@@ -210,11 +210,16 @@ def test_token_usage_is_kept_from_fresh_and_cached_answers(tmp_path):
     again.generate("p")
     assert again.last_from_cache and again.last_usage == usage
 
-def test_models_config_holds_the_four_models_under_test():
+def test_models_config_holds_the_models_under_test():
     models = load_model_settings()
-    assert list(models) == ["gemma-4-12b", "gemma-4-31b", "claude-opus-5-5", "gpt-6-astra"]
+    assert list(models) == ["gemma-4-12b", "gpt-5.6-sol", "claude-opus-5-5", "mistral-large-3",
+                            "deepseek-v4-flash", "gemma-4-31b", "gpt-6-astra"]
     assert models["gemma-4-12b"]["role"].startswith("baseline")
     assert models["gpt-6-astra"]["temperature"] is False
+    # Checked against the Fontys endpoint: these two reject a temperature.
+    assert models["gpt-5.6-sol"]["temperature"] is False
+    assert models["claude-opus-5-5"]["temperature"] is False
+    assert models["gpt-5.6-sol"]["token_limit_param"] == "max_completion_tokens"
 
 def test_bad_models_config_is_rejected(tmp_path):
     path = tmp_path / "models.yml"

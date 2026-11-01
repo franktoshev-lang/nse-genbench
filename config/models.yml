@@ -1,44 +1,76 @@
-# The four models under test (final, 27 October 2026). The endpoints are
-# supplied by the university. run.py --model <key> and the UI use the
-# settings below; the endpoint itself (MODEL_BASE_URL, MODEL_API_KEY) comes
-# from .env.
+# The models under test. The endpoint is the Fontys Portkey gateway
+# (MODEL_BASE_URL and MODEL_API_KEY in .env). On 1 November 2026 it serves
+# four models, alternatives to the ones requested; the exact ones can be
+# deployed later. run.py --model <key> and the UI use the settings below.
 #
-#   model_id               the exact id the endpoint expects. Filled in with
-#                          the vendor's id where one is known; replace it if
-#                          the university endpoint uses another name.
+#   model_id               the exact id the endpoint expects (a Fontys slug)
 #   temperature            false: never send a temperature (the model rejects it)
 #   token_limit_param      the field name this model accepts for the output limit
-#   price_in_per_million   EUR per million input tokens, if known (for the
+#   price_in_per_million   price per million input tokens, if known (for the
 #   price_out_per_million  budget display only; leave null if unknown)
 #
-# Reasoning: every model runs at its provider's default for now (decided
-# 27 October 2026, provisional). Reasoning tokens are recorded per run.
+# Request settings below were checked with one tiny call per model on
+# 1 November 2026. Reasoning: every model runs at its provider's default
+# (provisional). Reasoning tokens are recorded per run.
 
-budget_eur: 15
+budget_eur: 19.7   # from the Portkey key email; the email does not state the currency
 
 models:
+  # --- Baseline: not on the Fontys endpoint yet ---------------------------
   gemma-4-12b:
     name: Gemma 4 12B
     role: baseline, what the group pipeline deploys
-    model_id: ""            # no standard id; take it from the university
+    model_id: ""            # not on the Fontys endpoint yet
     temperature: true
     token_limit_param: max_tokens
     price_in_per_million: null
     price_out_per_million: null
 
-  gemma-4-31b:
-    name: Gemma 4 31B
-    role: larger model from the same family
-    model_id: ""            # no standard id; take it from the university
-    temperature: true
-    token_limit_param: max_tokens
+  # --- On the Fontys endpoint ---------------------------------------------
+  gpt-5.6-sol:
+    name: GPT-5.6 Sol
+    role: closed frontier model, OpenAI (Fontys alternative to GPT-6 Astra)
+    model_id: fontys-gpt-5.6-sol
+    # Rejects any temperature except its default (1), and rejects max_tokens.
+    temperature: false
+    token_limit_param: max_completion_tokens
     price_in_per_million: null
     price_out_per_million: null
 
   claude-opus-5-5:
     name: Claude Opus 5.5
-    role: frontier model, Anthropic
-    model_id: claude-opus-5-5
+    role: closed frontier model, Anthropic
+    model_id: fontys-claude-opus-5-5
+    # The Fontys deployment rejects temperature ("deprecated for this model").
+    temperature: false
+    token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
+
+  mistral-large-3:
+    name: Mistral Large 3
+    role: open weights (Apache 2.0, 675B), EU (Fontys alternative to Mistral Large 4)
+    model_id: fontys-mistral-large-3
+    temperature: true
+    # Rejects max_completion_tokens.
+    token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
+
+  deepseek-v4-flash:
+    name: DeepSeek V4 Flash
+    role: open weights (MIT, 291B), China (Fontys alternative to DeepSeek V4 Pro)
+    model_id: fontys-DeepSeek-V4-Flash
+    temperature: true
+    token_limit_param: max_tokens
+    price_in_per_million: null
+    price_out_per_million: null
+
+  # --- Requested, not on the Fontys endpoint yet ----------------------------
+  gemma-4-31b:
+    name: Gemma 4 31B
+    role: larger model from the same family
+    model_id: ""            # not on the Fontys endpoint yet
     temperature: true
     token_limit_param: max_tokens
     price_in_per_million: null
@@ -47,12 +79,10 @@ models:
   gpt-6-astra:
     name: GPT-6 Astra
     role: frontier model, OpenAI
-    model_id: gpt-6-astra
+    model_id: gpt-6-astra   # not on the Fontys endpoint yet; vendor id
     # OpenAI's docs (checked 19 October 2026): Astra cannot set reasoning
     # effort to "none", and temperature must be removed while reasoning is on.
     temperature: false
-    # Third-party reports say OpenAI reasoning models reject max_tokens and
-    # want max_completion_tokens. Confirm with the first test call.
     token_limit_param: max_completion_tokens
     price_in_per_million: null
     price_out_per_million: null
