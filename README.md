@@ -42,8 +42,8 @@ Local web app, standard library only, reachable from this computer only
 | Tab | What you do there |
 |---|---|
 | Run | Pick a data slice, a model and a prompt, set repeats and mode, and start a run. The log shows each stage live. Runs go one at a time. |
-| Results & scoring | Every run, filterable. Open one to read the card, check each claim against the answers it cites (supported / not supported), and rate usefulness, trustworthiness and completeness 1-5, each on its own. "Score blind" picks a random unscored run and hides the model, the prompt and the automatic scores until you save. "Export to Excel" downloads the runs the filters show (see below). |
-| Matrix | Every prompt x model combination, with the mean of any automatic score or your ratings. Click a cell to see its runs. |
+| Results & scoring | Every run, filterable. Open one to read the card and score it with the checklist (see "Human scoring" below): yes/no checks next to the summary, each point, each suggestion and each subtheme, whose cited answers are shown with the answer key. "Score blind" picks a random unscored run and hides the model, the prompt and the automatic scores until you save. "Export to Excel" downloads the runs the filters show (see below). |
+| Matrix | Every prompt x model combination, with the mean of any automatic score or of your checklist scores, and the ranking by your checklist. Click a cell or a ranking row to see its runs. |
 | Prompts | See exactly what each variant sends, with the changes against P0 highlighted. Add a variant by declaring text changes (with a live preview and checks), or remove one. |
 | Settings | Endpoint URL and API key (saved in `.env`), model ids and optional prices per model, and the tokens and euros used against the budget. |
 
@@ -81,7 +81,7 @@ UI's "Export to Excel" button:
 | Sheet | Holds |
 |---|---|
 | Read me | what each sheet holds and how to fill it in |
-| Runs | one row per run: model, prompt variant and what it changes, the card, the automatic scores, and columns for your 1-5 ratings and notes |
+| Runs | one row per run: model, prompt variant and what it changes, the card, the automatic scores, and your checklist scores and notes from the app |
 | Claims | one row per answer a card cites: the answer text, what the answer key says it is about, and a yes/no column |
 | Input &lt;slice&gt; | the student answers of each slice, with the answer key |
 | Prompts | the exact prompt of every step, and the model's answer to each step |
@@ -256,10 +256,32 @@ Keyword matching is fragile and the probes overlap across themes; it is used
 because it is transparent and bilingual. A theme with no probes is never
 counted as surfaced.
 
-Human scores (from the UI) are kept apart from the automatic ones: three
-ratings judged separately, never blended into one "quality" number, plus a
-yes/no claim check per subtheme, which is the human anchor for a later
-automatic faithfulness metric.
+### Human scoring
+
+Human scores (from the UI) are kept apart from the automatic ones. They use
+one checklist (`genbench/rubric.py`), the same for the researcher and the
+quality officers: yes/no checks instead of 1-5 ratings, because yes/no
+judgements on small units are more consistent between scorers.
+
+| Heading | Check | Answered per |
+|---|---|---|
+| Trustworthy | T1 the cited answers say what the subtheme claims (look at up to 3) | subtheme |
+| | T2 the point can be traced back to the answers | point |
+| | T3 the summary leads with the biggest group, without overstating | card |
+| | T4 the suggestion is a word-for-word quote and a suggestion | suggestion |
+| Complete | C1 the main subtheme from the answers is in the card | planted subtheme |
+| | C2 the small group is still in the card | card |
+| Useful | U1 the point is specific, not generic | point |
+| | U2 the subthemes stay distinct | card |
+| | U3 an officer could decide on an action from the card | card |
+| | U4 the Dutch reads naturally (quality officers only) | card |
+
+A heading's score is the mean over its checks of each check's share of "yes",
+so every check counts equally; unanswered checks are left out. Combinations
+are ranked by trustworthy, ties broken by complete, then useful, each the mean
+over the scored runs (Matrix tab). T1 is also the human anchor for a later
+automatic faithfulness metric. Older scores with 1-5 ratings still load; their
+per-subtheme claim checks count as T1.
 
 ## Rules
 
@@ -284,6 +306,7 @@ genbench/metrics.py    stage 4
 genbench/report.py     stage 4, results table
 genbench/runs.py       one run through all four stages (used by run.py and the UI)
 genbench/store.py      results and human scores, matrix and budget
+genbench/rubric.py     the scoring checklist and how it becomes scores and a ranking
 genbench/export.py     the Excel export, with the prompts rebuilt per run
 genbench/config_io.py  careful writers for .env and config/models.yml
 genbench/ui/           the web UI: server.py and static/ (HTML, CSS, JS)

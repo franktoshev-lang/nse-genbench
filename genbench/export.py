@@ -4,7 +4,7 @@ One workbook, standard library only (an .xlsx file is a zip of XML files):
 
   Read me       what each sheet holds and how to fill it in
   Runs          one row per run: model, prompt variant, the card, the
-                automatic scores, and empty columns for your 1-5 ratings
+                automatic scores, and your checklist scores from the app
   Claims        one row per answer a card cites, with the answer text and
                 what the answer key says it is about, and a yes/no column
   Input <slice> the student answers the model was given, with the answer key
@@ -33,7 +33,7 @@ from .data import load_responses
 from .pipeline import BATCH_DOCUMENTS, AnswerParseError, generate_card
 from .runners import (MOCK_CARDS, ChatCompletionsRunner, MockRunner, ModelConfig, ResponseCache,
                       _answer_text, sha256_text)
-from .store import RATING_DIMENSIONS
+from .rubric import HEADINGS, checks_from_score, heading_scores
 from .variants import VariantError, _build, load_variants
 
 CELL_LIMIT = 32767          # Excel's maximum characters in one cell
@@ -298,7 +298,8 @@ def build_workbook(records: list[dict], scores: dict[str, dict], *, root: Path, 
         s = rec.get("scores") or {}
         tokens = rec.get("tokens") or {}
         score = scores.get(rec["run_id"]) or {}
-        ratings = score.get("ratings") or {}
+        checks = checks_from_score(score)
+        heads = heading_scores(checks)
         spec = variants.get(rec.get("variant")) or {}
         settings_text = ", ".join(f"{k}={v}" for k, v in (rec.get("variant_settings") or {}).items())
         changes = rec.get("variant_dimension") or ""
@@ -316,10 +317,9 @@ def build_workbook(records: list[dict], scores: dict[str, dict], *, root: Path, 
             s.get("evidence_support"), s.get("lang"), s.get("words"),
             tokens.get("prompt_tokens"), tokens.get("completion_tokens"), tokens.get("reasoning_tokens"),
             rec.get("parse_error") or "",
-            *[ratings.get(d) for d in RATING_DIMENSIONS], score.get("note") or "",
+            *[heads[h] for h in HEADINGS], heads["checks_answered"] or "", score.get("note") or "",
         ])
         data = _slice_data(rec, root, slices)
-        claims = score.get("claims") or {}
         for index, entry in enumerate(card.get("subtheme_manifest") or []):
             if not isinstance(entry, dict):
                 continue
@@ -329,7 +329,7 @@ def build_workbook(records: list[dict], scores: dict[str, dict], *, root: Path, 
                     rec["run_id"], rec.get("model_key"), rec.get("variant"), index + 1,
                     entry.get("name", ""), entry.get("description", ""), eid,
                     data["texts"].get(eid, "(this ID is not in the input: invented)") if eid else "(no ID cited)",
-                    _planted_as(data, eid) if eid else "", _yes_no(claims.get(str(index))),
+                    _planted_as(data, eid) if eid else "", _yes_no(checks.get(f"T1:{index}")),
                 ])
         steps, note = rebuild_steps(rec, root, settings, out_dir)
         for step in steps:
@@ -348,19 +348,20 @@ def build_workbook(records: list[dict], scores: dict[str, dict], *, root: Path, 
         ["Runs in this file", len(records)],
         ["Filters", shown],
         ["Runs", "One row per run: which model and which prompt variant, the card the model wrote, "
-                 "the automatic scores, and empty columns for your ratings (1 = poor, 5 = excellent). "
-                 "Ratings and notes already given in the app are filled in."],
+                 "the automatic scores, and your checklist scores from the app: for trustworthy, "
+                 "complete and useful, the share of checks answered yes (0 to 1)."],
         ["Claims", "One row per student answer a card cites for a subtheme. 'Planted as' is the answer "
                    "key: the subtheme that answer was written for. If it matches the card's subtheme, "
-                   "the citation supports the claim. Fill in 'Supported?' with yes or no per subtheme. "
+                   "the citation supports the claim. 'Supported?' is your check T1 for that subtheme. "
                    "An ID that is not in the input was invented by the model."],
         ["Input sheets", "The student answers of each test slice, as the model got them, with the answer "
                          "key. Everything in them is invented test data, not real survey answers."],
         ["Prompts", "The exact prompt of every step of every run, rebuilt from the slice and the "
                     "variant, and the model's answer to each step. In map-reduce runs the map steps "
                     "summarise one batch each and the reduce step merges them into the card."],
-        ["Scores in this file", "Scores typed here stay in this file. The app's Matrix only counts "
-                                "scores saved in the app."],
+        ["Scoring", "Score in the app (Results tab), where every check of the checklist sits next to "
+                    "the part of the card it is about. This file shows those scores; anything typed "
+                    "here stays in this file."],
     ]
     wb.add_sheet("Read me", ["Item", "What it is"], readme, [22, 110])
     wb.add_sheet("Runs", [
@@ -370,9 +371,9 @@ def build_workbook(records: list[dict], scores: dict[str, dict], *, root: Path, 
         "Subthemes (with cited answer IDs)", "Valid output", "Coverage", "Rare subtheme kept",
         "Invented subtheme", "Off-theme answers cited", "Cited IDs exist", "Cited answers match",
         "Language", "Words", "Tokens in", "Tokens out", "of which reasoning", "Parse error",
-        *[f"{d.capitalize()} (1-5)" for d in RATING_DIMENSIONS], "Notes",
+        *[f"{h.capitalize()} (share yes)" for h in HEADINGS], "Checks answered", "Notes",
     ], runs_rows, [13, 17, 8, 18, 22, 7, 16, 18, 40, 10, 8, 50, 45, 45, 45, 60,
-                   8, 9, 9, 9, 9, 9, 9, 8, 7, 9, 9, 9, 20, 12, 14, 13, 40])
+                   8, 9, 9, 9, 9, 9, 9, 8, 7, 9, 9, 9, 20, 12, 12, 12, 10, 40])
     wb.add_sheet("Claims", [
         "Run ID", "Model", "Prompt variant", "Subtheme #", "Subtheme (as the card names it)",
         "Description", "Cited answer ID", "Student answer", "Planted as (answer key)",

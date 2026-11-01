@@ -189,6 +189,18 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .seg button.on { background: var(--accent); color: #fff; }
 .seg.yesno button.on.yes { background: var(--good); }
 .seg.yesno button.on.no { background: var(--bad); }
+/* checklist */
+.check { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
+         padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.check .q { flex: 1; min-width: 0; }
+.check .hint, .point .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.point { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
+         padding: 7px 0; border-bottom: 1px solid var(--border); }
+.point:last-child { border-bottom: 0; }
+.point .text { flex: 1; min-width: 0; }
+.pchecks { display: grid; grid-template-columns: auto auto; gap: 4px 8px; align-items: center; justify-items: end; flex-shrink: 0; }
+.seg.yesno button { padding: 3px 11px; }
+@media (max-width: 640px) { .check, .point { flex-direction: column; } .pchecks { justify-items: start; } }
 .rating { display: grid; grid-template-columns: 150px auto 1fr; gap: 10px; align-items: center; margin-bottom: 8px; }
 .rating .hint { color: var(--muted); font-size: 12px; }
 

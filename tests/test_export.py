@@ -73,7 +73,7 @@ def run(settings, responses, truth=None, model="mock:good", variant="P0-neutral"
 def test_workbook_holds_model_variant_card_claims_input_and_prompts(fixture_paths, settings, tmp_path):
     responses, truth = fixture_paths
     records = run(settings, responses, truth)
-    save_score(tmp_path / "out", records[0]["run_id"], ratings={"usefulness": 4}, claims={"0": True})
+    save_score(tmp_path / "out", records[0]["run_id"], checks={"T1:0": True, "U3": True, "U2": False})
     from genbench.store import load_scores
     body = build_workbook(records, load_scores(tmp_path / "out"), root=ROOT, settings=settings,
                           out_dir=tmp_path / "out", filters={"model": "mock:good"})
@@ -85,7 +85,8 @@ def test_workbook_holds_model_variant_card_claims_input_and_prompts(fixture_path
     assert column(runs, "Prompt variant") == ["P0-neutral"]
     assert column(runs, "Variant changes") == ["model_name"]
     assert column(runs, "Summary") == [GOOD_CARD["summary"]]
-    assert column(runs, "Usefulness (1-5)") == ["4"]
+    assert column(runs, "Useful (share yes)") == ["0.5"] and column(runs, "Trustworthy (share yes)") == ["1.0"]
+    assert column(runs, "Checks answered") == ["3"]
 
     claims = book["Claims"]
     cited = column(claims, "Cited answer ID")

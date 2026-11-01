@@ -248,9 +248,10 @@ async function poll() {
 let RESULT_FILTERS = { slice: "", model: "", variant: "", scored: "" };
 let selectedRun = null;
 
-function ratingMean(r) {
-  const vals = STATE.rating_dimensions.map((d) => r[d]).filter((v) => v !== null && v !== undefined);
-  return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+function scoreBadges(r) {
+  if (!r.scored) return '<span class="muted">-</span>';
+  const part = (name) => `<span class="badge accent" title="${name}: share of yes">${name[0].toUpperCase()} ${r[name] === null || r[name] === undefined ? "-" : Number(r[name]).toFixed(2)}</span>`;
+  return STATE.rubric.headings.map(part).join(" ");
 }
 
 async function viewResults(root, params) {
@@ -306,14 +307,14 @@ async function loadTable(onlyIds) {
     return;
   }
   table.innerHTML = `<thead><tr><th>When</th><th>Model</th><th>Prompt</th><th>Slice</th><th class="num">#</th>
-      <th class="num">Coverage</th><th>Minority</th><th>Invented</th><th class="num">Off-theme</th><th>Your score</th></tr></thead>
+      <th class="num">Coverage</th><th>Minority</th><th>Invented</th><th class="num">Off-theme</th><th title="Share of yes: trustworthy, complete, useful">Your score (T C U)</th></tr></thead>
     <tbody>${rows.map((r) => `<tr class="clickable ${r.run_id === selectedRun ? "selected" : ""}" data-run="${r.run_id}">
       <td>${esc(fmt.time(r.created_utc))}</td><td>${esc(modelName(r.model))}</td><td>${esc(r.variant)}</td>
       <td>${esc(r.slice)}</td><td class="num">${r.sample}</td>
       <td class="num">${r.parse_error ? '<span class="badge bad">no JSON</span>' : fmt.num(r.coverage, 2)}</td>
       <td>${badgeBool(r.minority_preserved, true)}</td><td>${badgeBool(r.hallucinated_absent, false)}</td>
       <td class="num">${r.off_theme_cited ?? "-"}</td>
-      <td>${r.scored ? `<span class="badge accent">${ratingMean(r) ?? "scored"}</span>` : '<span class="muted">-</span>'}</td>
+      <td style="white-space:nowrap">${scoreBadges(r)}</td>
     </tr>`).join("")}</tbody>`;
   $$("tr.clickable", table).forEach((tr) => tr.addEventListener("click", () => showRun(tr.dataset.run, false)));
 }
@@ -361,22 +362,72 @@ async function scoreBlind() {
   showRun(pick.run_id, true, pick.remaining);
 }
 
-const RATING_HELP = {
-  usefulness: "Would this help a quality officer decide what to improve?",
-  trustworthiness: "Could you check what it says, and does it hold up?",
-  completeness: "Does it cover what students raised, including the smaller groups?",
-};
+/* The scoring checklist (genbench/rubric.py): yes/no checks next to the part
+   of the card they are about. Each click toggles; clicking again clears. */
+const checkSpec = (id) => STATE.rubric.checks.find((c) => c.id === id) || { question: id, hint: "" };
+
+function yesNo(key, checks) {
+  const v = checks[key];
+  return `<div class="seg yesno" data-key="${esc(key)}"><button type="button" data-v="yes" class="yes ${v === true ? "on" : ""}">Yes</button><button type="button" data-v="no" class="no ${v === false ? "on" : ""}">No</button></div>`;
+}
+
+function checkRow(id, key, checks, extraHint) {
+  const c = checkSpec(id);
+  return `<div class="check"><div class="q"><span class="badge">${id}</span> ${esc(c.question)}
+      <div class="hint">${esc(extraHint || c.hint)}</div></div>${yesNo(key, checks)}</div>`;
+}
+
+function pointRows(items, kind, checks) {
+  if (!items || !items.length) return '<p class="muted">none</p>';
+  return items.map((text, i) => `<div class="point"><div class="text">${esc(text)}</div>
+      <div class="pchecks"><span class="small muted" title="${esc(checkSpec("T2").question)}">T2 traceable</span>${yesNo(`T2:${kind}:${i}`, checks)}
+      <span class="small muted" title="${esc(checkSpec("U1").question)}">U1 specific</span>${yesNo(`U1:${kind}:${i}`, checks)}</div></div>`).join("");
+}
+
+function suggestionRows(items, checks) {
+  if (!items || !items.length) return '<p class="muted">none</p>';
+  return items.map((text, i) => `<div class="point"><div class="text">${esc(text)}</div>
+      <div class="pchecks"><span class="small muted" title="${esc(checkSpec("T4").question)}">T4 verbatim suggestion</span>${yesNo(`T4:${i}`, checks)}</div></div>`).join("");
+}
+
+function checklistKeys(card, answerKey) {
+  // Every item a full score answers; U4 is left out because only officers answer it.
+  const keys = ["T3", "C2", "U2", "U3"];
+  (card.subtheme_manifest || []).forEach((e, i) => { if (e && typeof e === "object") keys.push(`T1:${i}`); });
+  for (const [kind, field] of [["pos", "positive_comments"], ["crit", "critical_comments"]]) {
+    (card[field] || []).forEach((_, i) => keys.push(`T2:${kind}:${i}`, `U1:${kind}:${i}`));
+  }
+  (card.student_suggestions || []).forEach((_, i) => keys.push(`T4:${i}`));
+  const planted = Object.keys(answerKey?.planted || {});
+  if (planted.length) planted.forEach((name) => keys.push(`C1:${name}`)); else keys.push("C1");
+  return keys;
+}
+
+function headingScores(checks) {
+  const per = {};
+  for (const [key, v] of Object.entries(checks)) {
+    if (v === null || v === undefined) continue;
+    (per[key.split(":")[0]] ||= []).push(v);
+  }
+  const out = {};
+  for (const h of STATE.rubric.headings) {
+    const shares = Object.entries(per).filter(([id]) => checkSpec(id).heading === h)
+      .map(([, vs]) => vs.filter(Boolean).length / vs.length);
+    out[h] = shares.length ? shares.reduce((a, b) => a + b, 0) / shares.length : null;
+  }
+  return out;
+}
 
 async function showRun(runId, blind, remaining) {
   selectedRun = runId;
   $$("#res-table tr.clickable").forEach((tr) => tr.classList.toggle("selected", tr.dataset.run === runId));
   const box = $("#detail");
   box.innerHTML = `<p class="muted">Loading...</p>`;
-  const { record, cited, score } = await api(`/api/results/${runId}`);
+  const { record, cited, answer_key: answerKey, score } = await api(`/api/results/${runId}`);
   const card = record.card || {};
   const s = record.scores || {};
-  const ratings = { ...(score?.ratings || {}) };
-  const claims = { ...(score?.claims || {}) };
+  const checks = { ...(score?.checks || {}) };
+  for (const [i, v] of Object.entries(score?.claims || {})) if (!(`T1:${i}` in checks)) checks[`T1:${i}`] = v;
 
   const metrics = [
     ["Valid JSON", fmt.bool(s.valid_json)], ["Coverage", fmt.num(s.coverage, 2)],
@@ -391,33 +442,41 @@ async function showRun(runId, blind, remaining) {
         <div class="spacer"></div><span class="muted small">${remaining ?? ""} unscored left</span></div>
        <p class="sub">Score the card on its own. The model, prompt and automatic scores appear after you save.</p>`
     : identityHeader(record, tokens);
-  const list = (items) => (items && items.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="muted">none</p>');
   const manifest = (card.subtheme_manifest || []).filter((e) => e && typeof e === "object");
+  const planted = Object.entries(answerKey?.planted || {});
+  const minorityHint = answerKey?.minority
+    ? `The answer key's small group is "${answerKey.minority}" (${answerKey.planted?.[answerKey.minority] ?? "?"} answers).`
+    : checkSpec("C2").hint;
 
   box.innerHTML = `
     <div id="d-header">${header}</div>
     <div id="d-metrics" class="${blind ? "hidden" : ""}" style="margin-bottom:16px">
       <div class="metrics">${metrics.map(([l, v]) => `<div class="metric"><div class="label">${l}</div><div class="value">${esc(v)}</div></div>`).join("")}</div>
     </div>
+    <div class="notice small" style="margin-bottom:14px">Answer each check with yes or no; click again to clear it.
+      Leave a check empty if you cannot judge it (for example a card in Dutch). Hover a short label to see its full question.</div>
     ${record.parse_error ? `<div class="notice bad">${esc(record.parse_error)}</div>` : `
     <div class="insight">
-      <section><h3>Summary</h3><p style="margin:0">${esc(card.summary || "")}</p></section>
-      <div class="cols even" style="gap:14px">
-        <section><h3>Positive points</h3>${list(card.positive_comments)}</section>
-        <section><h3>Critical points</h3>${list(card.critical_comments)}</section>
-      </div>
-      <section><h3>Student suggestions (meant to be verbatim)</h3>${list(card.student_suggestions)}</section>
-      <section><h3>Subthemes</h3><div class="chips">${(card.subthemes || []).map((t) => `<span class="badge">${esc(t)}</span>`).join("") || '<span class="muted">none</span>'}</div></section>
-      <section><h3>Claim check: is each subtheme supported by the answers it cites?</h3>
-        <div class="stack" style="gap:8px">${manifest.map((e, i) => claimBlock(e, i, cited, claims[String(i)])).join("") || '<p class="muted">The card cites no evidence.</p>'}</div>
+      <section><h3>Summary</h3><p style="margin:0 0 8px">${esc(card.summary || "")}</p>${checkRow("T3", "T3", checks)}</section>
+      <section><h3>Positive points</h3>${pointRows(card.positive_comments, "pos", checks)}</section>
+      <section><h3>Critical points</h3>${pointRows(card.critical_comments, "crit", checks)}</section>
+      <section><h3>Student suggestions (meant to be verbatim)</h3>${suggestionRows(card.student_suggestions, checks)}</section>
+      <section><h3>Subthemes: ${esc(checkSpec("T1").question)}</h3>
+        <div class="stack" style="gap:8px">${manifest.map((e, i) => claimBlock(e, i, cited, checks, Boolean(answerKey))).join("") || '<p class="muted">The card cites no evidence.</p>'}</div>
+        <div style="margin-top:8px">${checkRow("U2", "U2", checks)}</div>
       </section>
+      <section><h3>Whole card</h3><div class="stack" style="gap:8px">
+        ${planted.length
+          ? planted.map(([name, n]) => checkRow("C1", `C1:${name}`, checks, `Answer key: "${name}" (${n} answers). Yes if the card covers it under any name.`)).join("")
+          : checkRow("C1", "C1", checks, "No answer key for this slice: yes if every main issue in the answers is in the card.")}
+        ${checkRow("C2", "C2", checks, minorityHint)}
+        ${checkRow("U3", "U3", checks)}
+        ${checkRow("U4", "U4", checks)}
+      </div></section>
     </div>`}
     <hr style="border:0;border-top:1px solid var(--border);margin:18px 0">
-    <h3 style="margin-bottom:10px">Your ratings (1 = poor, 5 = excellent; each judged on its own)</h3>
-    ${STATE.rating_dimensions.map((d) => `<div class="rating"><strong style="text-transform:capitalize">${d}</strong>
-      <div class="seg" data-dim="${d}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-v="${n}" class="${ratings[d] === n ? "on" : ""}">${n}</button>`).join("")}</div>
-      <span class="hint">${RATING_HELP[d]}</span></div>`).join("")}
-    <div class="row" style="margin-top:8px">
+    <div class="row" style="align-items:center;margin-bottom:8px"><h3>Your scores</h3><div class="spacer"></div><span class="small" id="d-progress"></span></div>
+    <div class="row">
       <div class="field" style="flex:3"><label for="d-note">Note</label><textarea id="d-note" rows="2">${esc(score?.note || "")}</textarea></div>
       <div class="field" style="flex:1"><label for="d-scorer">Your name</label><input id="d-scorer" value="${esc(score?.scorer || localStorage.getItem("scorer") || "")}"></div>
     </div>
@@ -429,24 +488,29 @@ async function showRun(runId, blind, remaining) {
     </div>
     <details style="margin-top:14px"><summary>Raw card JSON</summary><pre class="diff">${esc(JSON.stringify(card, null, 2))}</pre></details>`;
 
-  $$(".seg[data-dim] button", box).forEach((b) => b.addEventListener("click", () => {
-    const dim = b.parentElement.dataset.dim;
-    const v = Number(b.dataset.v);
-    ratings[dim] = ratings[dim] === v ? null : v;
-    $$("button", b.parentElement).forEach((x) => x.classList.toggle("on", Number(x.dataset.v) === ratings[dim]));
-  }));
-  $$(".seg.yesno", box).forEach((seg) => $$("button", seg).forEach((b) => b.addEventListener("click", () => {
-    const idx = seg.dataset.claim;
+  const keys = checklistKeys(card, answerKey);
+  const progress = () => {
+    const done = keys.filter((k) => checks[k] === true || checks[k] === false).length;
+    const h = headingScores(checks);
+    const part = (name) => `${name} ${h[name] === null ? "-" : h[name].toFixed(2)}`;
+    $("#d-progress").textContent = record.parse_error ? "" :
+      `${done} of ${keys.length} checks answered.  ${STATE.rubric.headings.map(part).join("   ")}`;
+  };
+  progress();
+  $$(".seg.yesno[data-key]", box).forEach((seg) => $$("button", seg).forEach((b) => b.addEventListener("click", () => {
+    const key = seg.dataset.key;
     const v = b.dataset.v === "yes";
-    claims[idx] = claims[idx] === v ? null : v;
-    $$("button", seg).forEach((x) => x.classList.toggle("on", claims[idx] !== null && claims[idx] !== undefined && (x.dataset.v === "yes") === claims[idx]));
+    checks[key] = checks[key] === v ? null : v;
+    $$("button", seg).forEach((x) => x.classList.toggle("on", checks[key] !== null && (x.dataset.v === "yes") === checks[key]));
+    progress();
   })));
 
   $("#d-save").addEventListener("click", async () => {
     const scorer = $("#d-scorer").value.trim();
     localStorage.setItem("scorer", scorer);
+    const answered = Object.fromEntries(Object.entries(checks).filter(([, v]) => v === true || v === false));
     try {
-      const saved = await api("/api/scores", { body: { run_id: runId, ratings, claims, note: $("#d-note").value, scorer } });
+      const saved = await api("/api/scores", { body: { run_id: runId, checks: answered, note: $("#d-note").value, scorer } });
       toast("Score saved", "good");
       $("#d-status").textContent = `Last saved ${fmt.time(saved.scored_utc)}${saved.scorer ? ` by ${saved.scorer}` : ""}. Saving again keeps the old score as history.`;
       if (blind) {
@@ -471,22 +535,21 @@ function identityHeader(record, tokens) {
       ${record.request ? `${fmt.int(tokens.prompt_tokens)} tokens in, ${fmt.int(tokens.completion_tokens)} out` : "mock, no tokens"}${tokens.from_cache ? `, ${tokens.from_cache} call(s) from the cache` : ""}</p>`;
 }
 
-function claimBlock(entry, i, cited, current) {
+function claimBlock(entry, i, cited, checks, hasKey) {
   const ids = (entry.evidence_ids || []).map(String);
-  const evidence = ids.length
-    ? `<ul class="evidence">${ids.map((id) => {
-        const c = cited[id] || {};
-        const cls = !c.exists ? "missing" : c.off_theme ? "off" : "";
-        const tag = !c.exists ? '<span class="badge bad">ID not in the data: invented</span> '
-          : c.off_theme ? `<span class="badge warn">off-theme answer (${esc(c.label)})</span> ` : "";
-        return `<li class="${cls}"><span class="mono">${esc(id)}</span> ${tag}${esc(c.text || "")}</li>`;
-      }).join("")}</ul>`
-    : '<p class="muted small" style="margin:0">Cites no answers.</p>';
-  const on = (v) => (current === v ? "on" : "");
-  return `<div class="claim"><div class="head"><div class="text"><strong>${esc(entry.name || "")}</strong>
-      <div class="muted small">${esc(entry.description || "")}</div></div>
-      <div class="seg yesno" data-claim="${i}"><button type="button" data-v="yes" class="yes ${on(true)}">Supported</button>
-      <button type="button" data-v="no" class="no ${on(false)}">Not supported</button></div></div>${evidence}</div>`;
+  const item = (id) => {
+    const c = cited[id] || {};
+    const cls = !c.exists ? "missing" : c.off_theme ? "off" : "";
+    const tag = !c.exists ? '<span class="badge bad">ID not in the data: invented</span> '
+      : c.off_theme ? `<span class="badge warn">off-theme answer (${esc(c.label)})</span> `
+      : hasKey ? `<span class="badge">answer key: ${esc(c.label || "noise")}</span> ` : "";
+    return `<li class="${cls}"><span class="mono">${esc(id)}</span> ${tag}${esc(c.text || "")}</li>`;
+  };
+  const evidence = !ids.length ? '<p class="muted small" style="margin:0">Cites no answers.</p>'
+    : `<ul class="evidence">${ids.slice(0, 3).map(item).join("")}</ul>` + (ids.length > 3
+      ? `<details><summary class="small">Show all ${ids.length} cited answers</summary><ul class="evidence">${ids.slice(3).map(item).join("")}</ul></details>` : "");
+  return `<div class="claim"><div class="head"><div class="text"><span class="badge">T1</span> <strong>${esc(entry.name || "")}</strong>
+      <div class="muted small">${esc(entry.description || "")}</div></div>${yesNo(`T1:${i}`, checks)}</div>${evidence}</div>`;
 }
 
 /* ── Matrix ───────────────────────────────────────────────────────────── */
@@ -506,6 +569,7 @@ async function viewMatrix(root) {
     </div>
     <div id="m-table"></div>
     <div class="legend">worse <span class="bar"></span> better</div>
+    <div id="m-rank"></div>
   </section>`;
   $("#m-slice").addEventListener("change", (e) => { MATRIX.slice = e.target.value; drawMatrix(); });
   $("#m-metric").addEventListener("change", (e) => { MATRIX.metric = e.target.value; drawMatrix(); });
@@ -521,13 +585,13 @@ async function drawMatrix() {
     return;
   }
   const meta = data.metrics[MATRIX.metric];
-  const isRating = ["usefulness", "trustworthiness", "completeness"].includes(MATRIX.metric);
+  const isHuman = ["trustworthy", "complete", "useful", "claims_supported"].includes(MATRIX.metric);
   const isCount = MATRIX.metric === "off_theme_cited";
   const values = Object.values(data.cells).map((c) => c[MATRIX.metric]).filter((v) => v !== null);
   const maxCount = Math.max(1, ...values);
-  const norm = (v) => (isRating ? (v - 1) / 4 : isCount ? v / maxCount : v);
-  const show = (v) => (isRating ? Number(v).toFixed(1) : isCount ? Number(v).toFixed(1)
-    : ["coverage", "evidence_validity", "evidence_support"].includes(MATRIX.metric) ? Number(v).toFixed(2) : fmt.pct(v));
+  const norm = (v) => (isCount ? v / maxCount : v);
+  const show = (v) => (isCount ? Number(v).toFixed(1)
+    : isHuman || ["coverage", "evidence_validity", "evidence_support"].includes(MATRIX.metric) ? Number(v).toFixed(2) : fmt.pct(v));
   const color = (v) => {
     let x = Math.min(1, Math.max(0, norm(v)));
     if (!meta.higher) x = 1 - x;
@@ -542,10 +606,29 @@ async function drawMatrix() {
       const val = c[MATRIX.metric];
       const sd = MATRIX.metric === "coverage" && c.coverage_sd !== undefined ? ` sd ${c.coverage_sd.toFixed(2)}` : "";
       return `<td class="cell" data-v="${esc(v)}" data-m="${esc(m)}" style="background:${val === null ? "transparent" : color(val)}">
-        <div class="v">${val === null ? "-" : show(val)}</div><div class="n">n=${c.n}${sd}${isRating || MATRIX.metric === "claims_supported" ? `, ${c.n_scored} scored` : ""}</div></td>`;
+        <div class="v">${val === null ? "-" : show(val)}</div><div class="n">n=${c.n}${sd}${isHuman ? `, ${c.n_scored} scored` : ""}</div></td>`;
     }).join("")}</tr>`).join("")}</tbody></table></div>`;
   $$("td.cell", box).forEach((td) => td.addEventListener("click", () => {
     location.hash = `results?${new URLSearchParams({ variant: td.dataset.v, model: td.dataset.m, slice: MATRIX.slice })}`;
+  }));
+  drawRanking(data.ranking || []);
+}
+
+function drawRanking(rank) {
+  const box = $("#m-rank");
+  if (!box) return;
+  const num = (v) => (v === null || v === undefined ? "-" : Number(v).toFixed(2));
+  box.innerHTML = `<h3 style="margin:22px 0 4px">Ranking by your checklist</h3>
+    <p class="sub">Ranked by trustworthy first, ties broken by complete, then useful. Each number is the mean share of "yes"
+      over the scored runs of that prompt and model${MATRIX.slice ? ` on ${esc(MATRIX.slice)}` : ", all slices together"}.</p>
+    ${rank.length ? `<div class="table-wrap"><table class="data"><thead><tr><th class="num">Rank</th><th>Prompt</th><th>Model</th>
+      <th class="num">Trustworthy</th><th class="num">Complete</th><th class="num">Useful</th><th class="num">Runs scored</th></tr></thead>
+      <tbody>${rank.map((r) => `<tr class="clickable" data-v="${esc(r.variant)}" data-m="${esc(r.model)}"><td class="num">${r.rank}</td>
+        <td>${esc(r.variant)}</td><td>${esc(modelName(r.model))}</td><td class="num">${num(r.trustworthy)}</td>
+        <td class="num">${num(r.complete)}</td><td class="num">${num(r.useful)}</td><td class="num">${r.n_scored} of ${r.n}</td></tr>`).join("")}</tbody></table></div>`
+      : '<p class="muted">Nothing scored yet. Score runs on the Results tab.</p>'}`;
+  $$("tr.clickable", box).forEach((tr) => tr.addEventListener("click", () => {
+    location.hash = `results?${new URLSearchParams({ variant: tr.dataset.v, model: tr.dataset.m, slice: MATRIX.slice })}`;
   }));
 }
 

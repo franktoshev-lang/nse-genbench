@@ -15,6 +15,8 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .rubric import HEADINGS, RUBRIC_VERSION, checks_from_score, heading_scores, rank_key, valid_key
+
 RESULTS_FILE = "results.jsonl"
 SCORES_FILE = "scores.jsonl"
 RATING_DIMENSIONS = ("usefulness", "trustworthiness", "completeness")
@@ -60,13 +62,15 @@ def load_scores(out_dir) -> dict[str, dict]:
     return latest
 
 
-def save_score(out_dir, run_id: str, *, ratings: dict | None = None, claims: dict | None = None,
-               note: str = "", scorer: str = "", known_run_ids: set[str] | None = None) -> dict:
+def save_score(out_dir, run_id: str, *, checks: dict | None = None, ratings: dict | None = None,
+               claims: dict | None = None, note: str = "", scorer: str = "",
+               known_run_ids: set[str] | None = None) -> dict:
     """Validate and append one human score for a run.
 
-    ratings: {dimension: 1-5 or None}, judged separately, never blended.
-    claims:  {manifest entry index: True (supported) / False (not supported)},
-             the yes/no claim check from the officer protocol.
+    checks:  {item key: True (yes) / False (no)}, the scoring checklist in
+             genbench/rubric.py. This is what the UI saves.
+    ratings: {dimension: 1-5 or None}. Older scores only; kept readable.
+    claims:  {manifest entry index: True / False}. Older scores only; read as T1.
     """
     if known_run_ids is not None and run_id not in known_run_ids:
         raise ScoreError(f"unknown run {run_id!r}")
@@ -78,28 +82,39 @@ def save_score(out_dir, run_id: str, *, ratings: dict | None = None, claims: dic
                                   or not RATING_MIN <= value <= RATING_MAX):
             raise ScoreError(f"{dim} must be {RATING_MIN}-{RATING_MAX} or empty, got {value!r}")
         clean_ratings[dim] = value
+    clean_checks = {}
+    for key, value in (checks or {}).items():
+        if value is None:
+            continue
+        if not valid_key(key) or not isinstance(value, bool):
+            raise ScoreError(f"checks must map a checklist item to true/false, got {key!r}: {value!r}")
+        clean_checks[str(key)] = value
     clean_claims = {}
     for index, value in (claims or {}).items():
         if not str(index).isdigit() or not isinstance(value, bool):
             raise ScoreError(f"claims must map an entry number to true/false, got {index!r}: {value!r}")
         clean_claims[str(index)] = value
-    if not any(v is not None for v in clean_ratings.values()) and not clean_claims and not note.strip():
-        raise ScoreError("nothing to save: give at least one rating, claim check or note")
+    if (not clean_checks and not any(v is not None for v in clean_ratings.values())
+            and not clean_claims and not note.strip()):
+        raise ScoreError("nothing to save: answer at least one check, or write a note")
     record = {"run_id": run_id, "scored_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "scorer": scorer.strip(), "ratings": clean_ratings, "claims": clean_claims,
-              "note": note.strip()}
+              "scorer": scorer.strip(), "rubric": RUBRIC_VERSION, "checks": clean_checks,
+              "ratings": clean_ratings, "claims": clean_claims, "note": note.strip()}
     _append_jsonl(Path(out_dir) / SCORES_FILE, [record])
     return record
 
 
 def human_summary(score: dict | None) -> dict:
-    """Numbers from one human score: mean rating per dimension and share of claims supported."""
+    """Numbers from one human score: the checklist's share of "yes" per heading
+    (trustworthy, complete, useful), and the share of subthemes whose cited
+    answers support them (check T1)."""
     if not score:
-        return {"scored": False, **{d: None for d in RATING_DIMENSIONS}, "claims_supported": None}
-    ratings = score.get("ratings") or {}
-    claims = list((score.get("claims") or {}).values())
-    return {"scored": True, **{d: ratings.get(d) for d in RATING_DIMENSIONS},
-            "claims_supported": round(sum(claims) / len(claims), 4) if claims else None}
+        return {"scored": False, **{h: None for h in HEADINGS}, "checks_answered": 0,
+                "claims_supported": None}
+    checks = checks_from_score(score)
+    t1 = [v for k, v in checks.items() if k.startswith("T1:")]
+    return {"scored": True, **heading_scores(checks),
+            "claims_supported": round(sum(t1) / len(t1), 4) if t1 else None}
 
 
 def summary_rows(results: list[dict], scores: dict[str, dict]) -> list[dict]:
@@ -130,11 +145,12 @@ MATRIX_METRICS = {
     "evidence_validity": {"label": "Evidence-ID validity", "higher": True},
     "evidence_support": {"label": "Evidence support", "higher": True},
     "valid_json": {"label": "Valid JSON", "higher": True},
-    "usefulness": {"label": "Your rating: usefulness", "higher": True},
-    "trustworthiness": {"label": "Your rating: trustworthiness", "higher": True},
-    "completeness": {"label": "Your rating: completeness", "higher": True},
-    "claims_supported": {"label": "Your claim checks: supported", "higher": True},
+    "trustworthy": {"label": "Your checklist: trustworthy", "higher": True},
+    "complete": {"label": "Your checklist: complete", "higher": True},
+    "useful": {"label": "Your checklist: useful", "higher": True},
+    "claims_supported": {"label": "Your checklist: subthemes supported (T1)", "higher": True},
 }
+HUMAN_METRICS = ("trustworthy", "complete", "useful", "claims_supported")
 
 
 def matrix(results: list[dict], scores: dict[str, dict], slice_id: str | None = None) -> dict:
@@ -155,7 +171,31 @@ def matrix(results: list[dict], scores: dict[str, dict], slice_id: str | None = 
                 if metric == "coverage" and len(values) >= 2:
                     cell["coverage_sd"] = round(statistics.stdev(values), 4)
             cells[f"{v}|{m}"] = cell
-    return {"variants": variants, "models": models, "cells": cells, "metrics": MATRIX_METRICS}
+    return {"variants": variants, "models": models, "cells": cells, "metrics": MATRIX_METRICS,
+            "ranking": ranking(rows)}
+
+
+def ranking(rows: list[dict]) -> list[dict]:
+    """Every prompt x model combination with at least one scored run, ranked by
+    the rule fixed before scoring: trustworthy, then complete, then useful
+    (each the mean over the combination's scored runs)."""
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r["variant"], r["model"]), []).append(r)
+    out = []
+    for (variant, model), group in groups.items():
+        scored = [r for r in group if r["scored"]]
+        if not scored:
+            continue
+        entry = {"variant": variant, "model": model, "n": len(group), "n_scored": len(scored)}
+        for h in HEADINGS:
+            values = [r[h] for r in scored if r[h] is not None]
+            entry[h] = round(statistics.mean(values), 4) if values else None
+        out.append(entry)
+    out.sort(key=lambda e: (*rank_key(e), e["variant"], e["model"]))
+    for i, entry in enumerate(out, start=1):
+        entry["rank"] = i
+    return out
 
 
 def spend(results: list[dict], models_config: dict) -> dict:

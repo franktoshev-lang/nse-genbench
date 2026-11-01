@@ -26,7 +26,8 @@ from ..pipeline import MAX_DOCUMENTS, MODES, group_default_mode
 from ..runners import (MODELS_CONFIG, MOCK_CARDS, ModelNotConfigured, ModelRequestError,
                        load_models_config)
 from ..runs import ROOT, RunRequest, UsageError, current_settings, execute, out_dir
-from ..store import (MATRIX_METRICS, RATING_DIMENSIONS, ScoreError, load_results, load_scores,
+from ..rubric import as_state as rubric_state
+from ..store import (MATRIX_METRICS, ScoreError, load_results, load_scores,
                      matrix, save_score, spend, summary_rows)
 from ..variants import (BASELINE_ID, PROMPT_KINDS, VARIANTS_CONFIG, VariantError, delete_variant,
                         load_variants, preview, prompts_for, render, save_variant, word_diff)
@@ -163,7 +164,7 @@ class App:
             "spend": spend(results, models_config),
             "themes": [t for t in prompts.THEMES_LIST if t != prompts.LOW_INFORMATION_THEME],
             "modes": list(MODES), "prompt_kinds": list(PROMPT_KINDS),
-            "rating_dimensions": list(RATING_DIMENSIONS), "matrix_metrics": MATRIX_METRICS,
+            "rubric": rubric_state(), "matrix_metrics": MATRIX_METRICS,
             "n_results": len(results),
         }
 
@@ -238,14 +239,17 @@ class App:
         if record is None:
             raise ApiError(f"unknown run {run_id!r}", HTTPStatus.NOT_FOUND)
         texts = self.evidence_texts(record.get("responses_file", ""))
-        truth_labels, off_theme = {}, set()
+        truth_labels, off_theme, answer_key = {}, set(), None
         if record.get("truth_file"):
-            tpath = Path(record["truth_file"])
+            tpath = Path(str(record["truth_file"]).replace("\\", "/"))
             tpath = tpath if tpath.is_absolute() else self.root / tpath
             if tpath.is_file():
                 truth = json.loads(tpath.read_text(encoding="utf-8"))
                 truth_labels = truth.get("labels") or {}
                 off_theme = set(truth.get("off_theme_ids") or [])
+                answer_key = {"planted": truth.get("planted") or {},
+                              "minority": truth.get("minority_theme"),
+                              "absent": truth.get("absent_theme")}
         cited = {}
         for entry in (record.get("card") or {}).get("subtheme_manifest") or []:
             if isinstance(entry, dict):
@@ -253,12 +257,14 @@ class App:
                     eid = str(eid)
                     cited[eid] = {"text": texts.get(eid), "exists": eid in texts,
                                   "label": truth_labels.get(eid), "off_theme": eid in off_theme}
-        return {"record": record, "cited": cited, "score": load_scores(self.out()).get(run_id)}
+        return {"record": record, "cited": cited, "answer_key": answer_key,
+                "score": load_scores(self.out()).get(run_id)}
 
     def save_score(self, body: dict) -> dict:
         known = {r["run_id"] for r in load_results(self.out())}
         claims = {str(k): v for k, v in (body.get("claims") or {}).items() if v is not None}
-        return save_score(self.out(), body.get("run_id", ""), ratings=body.get("ratings"),
+        return save_score(self.out(), body.get("run_id", ""), checks=body.get("checks"),
+                          ratings=body.get("ratings"),
                           claims=claims, note=body.get("note", ""), scorer=body.get("scorer", ""),
                           known_run_ids=known)
 

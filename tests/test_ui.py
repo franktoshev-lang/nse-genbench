@@ -100,17 +100,19 @@ def test_run_score_and_matrix(ui):
     assert detail["record"]["scores"]["coverage"] == 1.0
     assert detail["cited"]["E0002"]["exists"] and "Projectmanagement" in detail["cited"]["E0002"]["text"]
 
-    status, err = ui("POST", "/api/scores", {"run_id": run_id, "ratings": {"usefulness": 9}})
-    assert status == 400 and "usefulness must be 1-5" in err["error"]
-    status, _ = ui("POST", "/api/scores", {"run_id": run_id, "ratings": {"usefulness": 4, "trustworthiness": 3},
-                                           "claims": {"0": True, "1": False}, "note": "fine", "scorer": "F"})
+    assert detail["answer_key"]["minority"] == "Support / Mentoring"
+    status, err = ui("POST", "/api/scores", {"run_id": run_id, "checks": {"X1": True}})
+    assert status == 400 and "checklist item" in err["error"]
+    status, _ = ui("POST", "/api/scores", {"run_id": run_id, "checks": {"T1:0": True, "T1:1": False, "U3": True,
+                                           "U2": True}, "note": "fine", "scorer": "F"})
     assert status == 200
     _, results = ui("GET", "/api/results?scored=yes")
     assert [r["run_id"] for r in results["rows"]] == [run_id]
 
     _, m = ui("GET", "/api/matrix")
     cell = m["cells"]["P0|mock:good"]
-    assert cell["n"] == 2 and cell["coverage"] == 1.0 and cell["usefulness"] == 4.0 and cell["claims_supported"] == 0.5
+    assert cell["n"] == 2 and cell["coverage"] == 1.0 and cell["useful"] == 1.0 and cell["claims_supported"] == 0.5
+    assert m["ranking"][0]["model"] == "mock:good" and m["ranking"][0]["trustworthy"] == 0.5
 
     _, pick = ui("GET", "/api/blind")
     assert pick["run_id"] is None                         # mock runs are left out of blind scoring
