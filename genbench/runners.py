@@ -24,6 +24,8 @@ from typing import Callable, Protocol
 
 import yaml
 
+from .schema import CARD_JSON_SCHEMA
+
 
 class Runner(Protocol):
     key: str
@@ -109,6 +111,7 @@ DEFAULT_TIMEOUT_S = 600.0
 DEFAULT_MAX_RETRIES = 3
 
 TOKEN_LIMIT_PARAMS = ("max_tokens", "max_completion_tokens")
+RESPONSE_FORMATS = ("json_schema",)
 MODELS_CONFIG = Path(__file__).resolve().parents[1] / "config" / "models.yml"
 
 RETRY_STATUSES = frozenset({408, 409, 429, 500, 502, 503, 504})
@@ -167,6 +170,9 @@ class ModelConfig:
     # temperature, or want the output limit under another field name.
     send_temperature: bool = True
     token_limit_param: str = "max_tokens"
+    # Set by a prompt variant: "json_schema" asks the endpoint to constrain the
+    # answer to the card schema. None sends no response_format at all.
+    response_format: str | None = None
 
     def __post_init__(self) -> None:
         if not self.base_url.strip():
@@ -187,6 +193,9 @@ class ModelConfig:
             raise ValueError(f"temperature must be between 0 and 2, got {self.temperature!r}")
         if self.max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries!r}")
+        if self.response_format is not None and self.response_format not in RESPONSE_FORMATS:
+            raise ValueError(f"response_format must be one of {RESPONSE_FORMATS} or None, "
+                             f"got {self.response_format!r}")
         if self.token_limit_param not in TOKEN_LIMIT_PARAMS:
             raise ValueError(f"token_limit_param must be one of {TOKEN_LIMIT_PARAMS}, "
                              f"got {self.token_limit_param!r}")
@@ -346,18 +355,24 @@ class ChatCompletionsRunner:
             payload["temperature"] = c.temperature
         if c.seed is not None:
             payload["seed"] = c.seed
+        if c.response_format == "json_schema":
+            payload["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "dashboard_card", "strict": True, "schema": CARD_JSON_SCHEMA}}
         if FORBIDDEN_PAYLOAD_KEYS & payload.keys():
             raise RuntimeError("tool or web-search fields must never be sent")
         return payload
 
     def input_hash(self) -> str:
         c = self.config
-        return sha256_text(json.dumps({
+        fields = {
             "base_url": c.base_url.rstrip("/"), "max_tokens": c.max_tokens,
             "token_limit_param": c.token_limit_param,
             "temperature": c.temperature if c.send_temperature else None,
             "seed": c.seed, "sample": self.sample,
-        }, sort_keys=True))
+        }
+        if c.response_format is not None:   # only when set, so older cache keys stay valid
+            fields["response_format"] = c.response_format
+        return sha256_text(json.dumps(fields, sort_keys=True))
 
     def generate(self, prompt: str) -> str:
         prompt_hash, input_hash = sha256_text(prompt), self.input_hash()

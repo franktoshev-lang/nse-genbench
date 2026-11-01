@@ -17,12 +17,14 @@ from typing import Callable
 from . import prompts
 from .data import load_responses, load_truth
 from .metrics import load_probes, score, stability
-from .pipeline import MAX_DOCUMENTS, AnswerParseError, generate_card, group_default_mode
+from .pipeline import (BATCH_DOCUMENTS, MAX_DOCUMENTS, AnswerParseError, generate_card,
+                       group_default_mode)
 from .report import table
 from .runners import (MODELS_CONFIG, MOCK_CARDS, ChatCompletionsRunner, MockRunner, ModelConfig,
                       ResponseCache, load_model_settings, read_dotenv)
 from .store import append_results
-from .variants import BASELINE_ID, VARIANTS_CONFIG, edits_for, load_variants, prompts_for
+from .variants import (BASELINE_ID, VARIANTS_CONFIG, edits_for, load_variants, prompts_for,
+                       settings_for)
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUP_SOURCE = "r-huijts/NSE_Applied_GenAI@6a48c37"
@@ -77,7 +79,8 @@ def billed_tokens(calls: list[dict]) -> dict:
     return total
 
 
-def _runner_factory(req: RunRequest, settings: dict, log, transport, root: Path, models_path):
+def _runner_factory(req: RunRequest, settings: dict, log, transport, root: Path, models_path,
+                    response_format: str | None = None):
     """Report the model setup once; return (make_runner(sample), request settings)."""
     if req.model.startswith("mock:"):
         variant = req.model.split(":", 1)[1]
@@ -88,7 +91,8 @@ def _runner_factory(req: RunRequest, settings: dict, log, transport, root: Path,
         return (lambda sample: MockRunner(variant)), None
 
     spec = load_model_settings(models_path).get(req.model)
-    overrides = {"max_tokens": req.max_tokens, "temperature": req.temperature}
+    overrides = {"max_tokens": req.max_tokens, "temperature": req.temperature,
+                 "response_format": response_format}
     if spec is None:
         overrides["model"] = req.model
         label = req.model
@@ -110,9 +114,13 @@ def _runner_factory(req: RunRequest, settings: dict, log, transport, root: Path,
     log(f"  request: {config.token_limit_param}={config.max_tokens}  "
         f"temperature={'not sent' if temperature is None else temperature}  seed={config.seed}  "
         f"reasoning=provider default  tools/web search: never sent")
+    if config.response_format:
+        log(f"  output:  response_format={config.response_format} (the card schema, set by the variant)")
     log(f"  cache:   {cache.root}")
     request = {"token_limit_param": config.token_limit_param, "max_tokens": config.max_tokens,
                "temperature": temperature, "seed": config.seed, "reasoning": "provider default"}
+    if config.response_format:
+        request["response_format"] = config.response_format
     return (lambda sample: ChatCompletionsRunner(config, cache=cache, sample=sample,
                                                  transport=transport)), request
 
@@ -151,6 +159,7 @@ def execute(req: RunRequest, *, log: Callable[[str], None] = print, transport=No
         raise UsageError(f"the group pipeline excludes {theme!r} from generation")
     prompt_module = prompts_for(req.variant, variants_path)
     variant_spec = load_variants(variants_path)[req.variant]
+    variant_settings = settings_for(req.variant, variants_path)
     if req.variant == BASELINE_ID:
         log(f"  prompts: group pipeline, {GROUP_SOURCE}, variant {BASELINE_ID} (verbatim)")
     else:
@@ -162,14 +171,26 @@ def execute(req: RunRequest, *, log: Callable[[str], None] = print, transport=No
     if len(responses) > MAX_DOCUMENTS:
         log(f"  cap:     first {MAX_DOCUMENTS} of {len(responses)} responses, as in the group "
             f"pipeline; the other {len(responses) - MAX_DOCUMENTS} never reach the model")
+    batch = variant_settings.get("batch_documents", BATCH_DOCUMENTS)
+    if req.mode and variant_settings.get("mode") and req.mode != variant_settings["mode"]:
+        raise UsageError(f"variant {req.variant} sets mode {variant_settings['mode']}; "
+                         f"leave the mode empty or pick another variant")
     default_mode = group_default_mode(n_analyzed)
-    mode = req.mode or default_mode
-    note = ("what the group pipeline does" if mode == default_mode else
-            f"forced; the group pipeline would use {default_mode} for {n_analyzed} responses")
+    mode = req.mode or variant_settings.get("mode") or group_default_mode(n_analyzed, batch)
+    if not req.mode and ("mode" in variant_settings or batch != BATCH_DOCUMENTS):
+        note = (f"set by variant {req.variant}; the group pipeline uses {default_mode} "
+                f"with batches of {BATCH_DOCUMENTS}")
+    else:
+        note = ("what the group pipeline does" if mode == default_mode else
+                f"forced; the group pipeline would use {default_mode} for {n_analyzed} responses")
     log(f"  mode:    {mode} ({note})")
+    if mode == "mapreduce":
+        log(f"  batches: {batch} responses each" + ("" if batch == BATCH_DOCUMENTS else
+                                                    f" (variant setting; the group pipeline uses {BATCH_DOCUMENTS})"))
 
     stage(log, 3, "MODEL")
-    make_runner, request = _runner_factory(req, settings, log, transport, root, models_path)
+    make_runner, request = _runner_factory(req, settings, log, transport, root, models_path,
+                                           variant_settings.get("response_format"))
     log("  calls:   each step builds a prompt [2], calls the model [3], parses the answer [4]")
     runs = []
     for sample in range(req.repeats):
@@ -177,7 +198,8 @@ def execute(req: RunRequest, *, log: Callable[[str], None] = print, transport=No
             log(f"  -- repeat {sample + 1} of {req.repeats}")
         runner = make_runner(sample)
         try:
-            gen = generate_card(runner, theme, responses, mode=mode, prompt_module=prompt_module, log=log)
+            gen = generate_card(runner, theme, responses, mode=mode, prompt_module=prompt_module,
+                                batch_documents=batch, log=log)
             runs.append({"sample": sample, "model": runner.key, "card": gen.card,
                          "calls": gen.calls, "parse_error": None})
         except AnswerParseError as exc:
@@ -196,7 +218,8 @@ def execute(req: RunRequest, *, log: Callable[[str], None] = print, transport=No
             "run_id": uuid.uuid4().hex[:12], "created_utc": created, "slice": slice_id,
             "responses_file": str(req.responses), "truth_file": req.truth, "theme": theme,
             "variant": req.variant, "variant_dimension": variant_spec["dimension"],
-            "variant_edits": [list(e) for e in edits_for(req.variant, variants_path)], "mode": mode,
+            "variant_edits": [list(e) for e in edits_for(req.variant, variants_path)],
+            "variant_settings": variant_settings, "mode": mode, "batch_documents": batch,
             "model_key": req.model, "model": run["model"], "sample": run["sample"],
             "request": request, "tokens": billed_tokens(run["calls"]), "calls": run["calls"],
             "parse_error": run["parse_error"], "scores": sc.flat(), "scorecard": sc.to_dict(),

@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 from .. import prompts
 from ..config_io import update_dotenv, update_model_field
 from ..data import DataError, load_responses
+from ..export import build_workbook, export_filename
 from ..pipeline import MAX_DOCUMENTS, MODES, group_default_mode
 from ..runners import (MODELS_CONFIG, MOCK_CARDS, ModelNotConfigured, ModelRequestError,
                        load_models_config)
@@ -31,6 +32,7 @@ from ..variants import (BASELINE_ID, PROMPT_KINDS, VARIANTS_CONFIG, VariantError
                         load_variants, preview, prompts_for, render, save_variant, word_diff)
 
 STATIC = Path(__file__).resolve().parent / "static"
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 EXPECTED_ERRORS = (FileNotFoundError, DataError, UsageError, ModelNotConfigured, ModelRequestError,
                    VariantError, ScoreError, ValueError, KeyError)
 
@@ -153,7 +155,8 @@ class App:
             "mocks": [{"key": f"mock:{v}", "name": f"Mock: {v} card", "ready": True} for v in MOCK_CARDS],
             "variants": [{"id": vid, "dimension": spec["dimension"],
                           "description": spec.get("description", ""),
-                          "edits": spec.get("replace") or [], "runs": runs_per_variant.get(vid, 0),
+                          "edits": spec.get("replace") or [], "base": spec.get("base"),
+                          "settings": spec.get("settings") or {}, "runs": runs_per_variant.get(vid, 0),
                           "locked": vid == BASELINE_ID} for vid, spec in variants.items()],
             "endpoint": {"base_url": settings.get("MODEL_BASE_URL", ""),
                          "api_key_set": bool(settings.get("MODEL_API_KEY", "").strip())},
@@ -216,6 +219,19 @@ class App:
             wanted = set(query["run_ids"].split(","))
             rows = [r for r in rows if r["run_id"] in wanted]
         return {"rows": rows}
+
+    def export(self, query: dict) -> tuple[bytes, str]:
+        """An Excel workbook of the runs the Results tab shows with these filters."""
+        filters = {k: query.get(k) for k in ("slice", "model", "variant", "scored") if query.get(k)}
+        wanted = {r["run_id"] for r in self.results(query)["rows"]}
+        if not wanted:
+            raise ApiError("no runs match these filters, so there is nothing to export")
+        records = [r for r in load_results(self.out()) if r["run_id"] in wanted]
+        records.sort(key=lambda r: (str(r.get("slice")), str(r.get("model_key")), str(r.get("variant")),
+                                    str(r.get("created_utc")), r.get("sample") or 0))
+        body = build_workbook(records, load_scores(self.out()), root=self.root, settings=self.settings(),
+                              out_dir=self.out(), variants_path=self.variants_path, filters=filters)
+        return body, export_filename(filters)
 
     def result(self, run_id: str) -> dict:
         record = next((r for r in load_results(self.out()) if r["run_id"] == run_id), None)
@@ -305,9 +321,11 @@ def make_handler(app: App):
         def log_message(self, *args) -> None:
             pass
 
-        def _send(self, status: int, body: bytes, content_type: str) -> None:
+        def _send(self, status: int, body: bytes, content_type: str, headers: dict | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -367,6 +385,10 @@ def make_handler(app: App):
                     result = app.blind_pick(query)
                 elif route == ("GET", "matrix", 1):
                     result = app.matrix(query)
+                elif route == ("GET", "export", 1):
+                    body, filename = app.export(query)
+                    return self._send(HTTPStatus.OK, body, XLSX_TYPE,
+                                      {"Content-Disposition": f'attachment; filename="{filename}"'})
                 elif route == ("POST", "variants", 2) and parts[1] == "preview":
                     result = app.variant_preview(self._body())
                 elif route == ("POST", "variants", 1):

@@ -42,7 +42,7 @@ Local web app, standard library only, reachable from this computer only
 | Tab | What you do there |
 |---|---|
 | Run | Pick a data slice, a model and a prompt, set repeats and mode, and start a run. The log shows each stage live. Runs go one at a time. |
-| Results & scoring | Every run, filterable. Open one to read the card, check each claim against the answers it cites (supported / not supported), and rate usefulness, trustworthiness and completeness 1-5, each on its own. "Score blind" picks a random unscored run and hides the model, the prompt and the automatic scores until you save. |
+| Results & scoring | Every run, filterable. Open one to read the card, check each claim against the answers it cites (supported / not supported), and rate usefulness, trustworthiness and completeness 1-5, each on its own. "Score blind" picks a random unscored run and hides the model, the prompt and the automatic scores until you save. "Export to Excel" downloads the runs the filters show (see below). |
 | Matrix | Every prompt x model combination, with the mean of any automatic score or your ratings. Click a cell to see its runs. |
 | Prompts | See exactly what each variant sends, with the changes against P0 highlighted. Add a variant by declaring text changes (with a live preview and checks), or remove one. |
 | Settings | Endpoint URL and API key (saved in `.env`), model ids and optional prices per model, and the tokens and euros used against the budget. |
@@ -68,6 +68,29 @@ Any other value is a model id for the endpoint in `.env`.
 `--repeats N` runs the same condition N times as separate requests and prints
 the spread. Every run, with its scores, card and token counts, is appended to
 `out/results.jsonl`.
+
+### Export for scoring by hand
+
+```bash
+python scripts/export.py [--slice EA-60] [--model KEY] [--variant ID] [--scored yes|no] [--out FILE]
+```
+
+Writes one Excel workbook (to `out/exports/` by default), the same file as the
+UI's "Export to Excel" button:
+
+| Sheet | Holds |
+|---|---|
+| Read me | what each sheet holds and how to fill it in |
+| Runs | one row per run: model, prompt variant and what it changes, the card, the automatic scores, and columns for your 1-5 ratings and notes |
+| Claims | one row per answer a card cites: the answer text, what the answer key says it is about, and a yes/no column |
+| Input &lt;slice&gt; | the student answers of each slice, with the answer key |
+| Prompts | the exact prompt of every step, and the model's answer to each step |
+
+Prompts are not stored with a run; the export rebuilds them from the slice
+and the variant, and takes map-reduce batch answers from `out/cache`, so
+nothing is sent to a model. Each rebuilt prompt is checked against the length
+recorded at run time. Scores typed into the workbook stay there; the Matrix
+only counts scores saved in the app.
 
 ## Stage 1 - Data
 
@@ -131,12 +154,23 @@ caps or evidence-ID rule in the map prompt.
 Variants are a separate layer (`config/variants.yml`, `genbench/variants.py`).
 Each variant is the baseline code with declared text edits applied, and
 changes exactly one dimension. `tests/test_variants.py` fails if a variant's
-prompts differ from P0's in anything not declared.
+prompts differ from P0's in anything not declared. A variant can be built on
+another (`base: P0-neutral`), and can change run `settings` instead of text:
+the map batch size, the mode, or a structured-output request.
 
 | Variant | Changes |
 |---|---|
 | `P0` | nothing: the group's prompts, verbatim |
-| `P0-neutral` | removes the three "Gemma 4" labels, so no model is told it is Gemma. Used for every comparison across models |
+| `P0-neutral` | removes the three "Gemma 4" labels, so no model is told it is Gemma. Used for every comparison across models, and the base of the variants below |
+| `P1-EN-NL` | the analytical fields are written in Dutch instead of English |
+| `P2-batch-20`, `P2-batch-120` | 20 or 120 responses per map batch instead of 60 |
+| `P2-single` | every response (up to the cap) in one prompt, no map-reduce |
+| `P3-summary-last` | `summary` moves from the first to the last key of the JSON format |
+| `P10-schema` | asks the endpoint to constrain the answer to the card schema (`response_format` json_schema, strict) |
+
+The set and its order come from the prompt-engineering research document
+(13 October 2026, section 4.6). Temperature (P4) is not tested for now, and the
+NL/NL cell of P1 needs a checked Dutch translation of the whole prompt.
 
 `tests/test_prompts.py` checks that every prompt, plus `parse_llm_json`,
 renders byte-identical to the group repo: against a snapshot of the group's
@@ -177,7 +211,7 @@ registry:
 | Setting | Default | Why |
 |---|---|---|
 | `max_tokens` | 8192 (`--max-tokens`) | The group's own code default. Its registry uses 12768-18768 with thinking on. |
-| `temperature` | 0.1 (`--temperature`) | The group's code default. Its registry overrides it to 1.0 on every model; that is a condition to test, not to inherit. Not sent to a model configured without one. |
+| `temperature` | 0.1 (`--temperature`) | The group's code default. Its registry overrides it to 1.0 on every model; that is a condition to test, not to inherit. Not sent to a model configured without one; for now (1 November 2026) no model in `config/models.yml` gets one, so each runs at its provider's default. |
 | `seed` | 42 (`GENBENCH_SEED`) | Same input, same output where the provider honours it. |
 | tools / web search | never sent | The payload is built from an allowlist. |
 
@@ -250,9 +284,11 @@ genbench/metrics.py    stage 4
 genbench/report.py     stage 4, results table
 genbench/runs.py       one run through all four stages (used by run.py and the UI)
 genbench/store.py      results and human scores, matrix and budget
+genbench/export.py     the Excel export, with the prompts rebuilt per run
 genbench/config_io.py  careful writers for .env and config/models.yml
 genbench/ui/           the web UI: server.py and static/ (HTML, CSS, JS)
 scripts/run.py         one run from the command line
+scripts/export.py      export runs to an Excel workbook for scoring by hand
 scripts/ui.py          start the UI
 tests/                 tests; tests/golden/ holds the group's rendered prompts
 ```

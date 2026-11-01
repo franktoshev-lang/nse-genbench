@@ -126,3 +126,48 @@ def test_bad_variants_are_not_saved(variants_file, variant_id, dimension, edits,
 def test_baseline_cannot_be_removed(variants_file):
     with pytest.raises(VariantError, match="cannot be removed"):
         delete_variant("P0", variants_file)
+
+
+# ── variants built on a base, and run settings ────────────────────────────
+def test_a_variant_on_a_base_applies_the_base_edits_first():
+    neutral = edits_for("P0-neutral")
+    own = edits_for("P3-summary-last")
+    assert own[:len(neutral)] == neutral and len(own) > len(neutral)
+    assert all("Gemma" not in t for t in render_cases(prompts_for("P3-summary-last"),
+                                                      prompts.THEMES_LIST).values())
+
+def test_settings_are_merged_over_the_base():
+    from genbench.variants import settings_for
+    assert settings_for(BASELINE_ID) == {}
+    assert settings_for("P0-neutral") == {}
+    assert settings_for("P2-batch-20") == {"batch_documents": 20}
+    assert settings_for("P10-schema") == {"response_format": "json_schema"}
+
+def test_summary_last_moves_only_the_summary_key():
+    from genbench.variants import render
+    text = render(prompts_for("P3-summary-last"), "single", "Examination & Assessment")
+    schema = text[text.index("Respond EXACTLY"):text.index("Responses:")]
+    assert schema.index('"positive_comments"') < schema.index('"subtheme_manifest"') < schema.index('"summary"')
+
+@pytest.mark.parametrize("yaml_text, message", [
+    ("variants:\n  P0:\n    dimension: none\n  X:\n    dimension: a\n    base: nope\n", "base 'nope'"),
+    ("variants:\n  P0:\n    dimension: none\n  X:\n    dimension: a\n    base: Y\n"
+     "  Y:\n    dimension: b\n    base: X\n", "loop"),
+    ("variants:\n  P0:\n    dimension: none\n  X:\n    dimension: a\n    settings: {colour: red}\n",
+     "unknown setting"),
+    ("variants:\n  P0:\n    dimension: none\n  X:\n    dimension: a\n    settings: {batch_documents: 0}\n",
+     "invalid value"),
+    ("variants:\n  P0:\n    dimension: none\n  X:\n    dimension: a\n    settings: {mode: fast}\n",
+     "invalid value"),
+    ("variants:\n  P0:\n    dimension: none\n    settings: {mode: single}\n", "cannot have edits"),
+])
+def test_bad_bases_and_settings_are_rejected(tmp_path, yaml_text, message):
+    path = tmp_path / "variants.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    with pytest.raises(VariantError, match=message):
+        load_variants(path)
+
+def test_a_base_cannot_be_removed_while_variants_use_it(variants_file):
+    from genbench.variants import delete_variant
+    with pytest.raises(VariantError, match="base of"):
+        delete_variant("P0-neutral", variants_file)

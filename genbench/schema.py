@@ -20,6 +20,34 @@ CARD_KEYS = (
 
 LIST_KEYS = CARD_KEYS[1:]
 
+_STRINGS = {"type": "array", "items": {"type": "string"}}
+
+# The same card as a JSON Schema, for endpoints that can constrain the answer
+# to a schema (variant setting response_format: json_schema). Strict mode
+# needs every key required and no extra keys, which is what the prompt asks.
+CARD_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "positive_comments": _STRINGS,
+        "critical_comments": _STRINGS,
+        "student_suggestions": _STRINGS,
+        "subthemes": _STRINGS,
+        "subtheme_manifest": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "description": {"type": "string"},
+                               "evidence_ids": _STRINGS},
+                "required": ["name", "description", "evidence_ids"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": list(CARD_KEYS),
+    "additionalProperties": False,
+}
+
 
 @dataclass
 class ValidationResult:

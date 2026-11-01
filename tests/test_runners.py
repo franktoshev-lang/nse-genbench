@@ -226,3 +226,28 @@ def test_bad_models_config_is_rejected(tmp_path):
     path.write_text("models:\n  m:\n    token_limit_param: limit\n", encoding="utf-8")
     with pytest.raises(ValueError, match="token_limit_param"):
         load_model_settings(path)
+
+
+# ── structured output (variant setting response_format) ──────────────────
+def test_structured_output_sends_the_card_schema():
+    from genbench.schema import CARD_KEYS
+    transport = FakeTransport(ok())
+    runner, _ = make(transport, response_format="json_schema")
+    runner.generate("p")
+    fmt = transport.calls[0]["payload"]["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["schema"]["required"] == list(CARD_KEYS)
+
+def test_no_response_format_unless_asked_and_old_cache_keys_stay_the_same():
+    transport = FakeTransport(ok())
+    plain, _ = make(transport)
+    plain.generate("p")
+    assert "response_format" not in transport.calls[0]["payload"]
+    structured, _ = make(transport, response_format="json_schema")
+    assert plain.input_hash() != structured.input_hash()
+    again, _ = make(transport)
+    assert again.input_hash() == plain.input_hash()
+
+def test_unknown_response_format_is_refused():
+    with pytest.raises(ValueError, match="response_format"):
+        ModelConfig(base_url=URL, model="m", response_format="xml")

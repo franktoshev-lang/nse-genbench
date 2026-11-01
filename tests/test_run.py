@@ -129,3 +129,22 @@ def test_temperature_is_refused_for_a_model_that_rejects_it(run_main, fixture_pa
     assert run_main(["--responses", str(responses), "--truth", str(truth), "--model", "gpt-6-astra",
                      "--temperature", "1.0"]) == 2
     assert "gpt-6-astra does not accept a temperature" in capsys.readouterr().err
+
+
+def test_variant_batch_size_is_used_and_recorded(run_main, tmp_path, capsys, out_dir):
+    records = [{**FIXTURE_RESPONSES[0], "evidence_id": f"E{i:04d}"} for i in range(1, 61)]
+    path = write_jsonl(tmp_path / "r.jsonl", records)
+    assert run_main(["--responses", str(path), "--model", "mock:good", "--theme", "Teachers",
+                     "--variant", "P2-batch-20"]) == 0
+    out = capsys.readouterr().out
+    assert "mode:    mapreduce (set by variant P2-batch-20" in out
+    assert "batches: 20 responses each (variant setting" in out
+    assert "[2 prompt] map 3/3" in out
+    record = results(out_dir)[0]
+    assert record["batch_documents"] == 20 and record["variant_settings"] == {"batch_documents": 20}
+
+def test_variant_mode_and_a_different_forced_mode_conflict(run_main, fixture_paths, capsys):
+    responses, truth = fixture_paths
+    assert run_main(["--responses", str(responses), "--truth", str(truth), "--model", "mock:good",
+                     "--variant", "P2-single", "--mode", "mapreduce"]) == 2
+    assert "variant P2-single sets mode single" in capsys.readouterr().err

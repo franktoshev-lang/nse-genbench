@@ -41,9 +41,10 @@ class AnswerParseError(RuntimeError):
         self.calls = calls or []    # the calls made so far, so their tokens still count
 
 
-def group_default_mode(n_analyzed: int) -> str:
-    """What the group pipeline does with this many responses after the cap."""
-    return "single" if n_analyzed <= BATCH_DOCUMENTS else "mapreduce"
+def group_default_mode(n_analyzed: int, batch_documents: int = BATCH_DOCUMENTS) -> str:
+    """What the group pipeline does with this many responses after the cap:
+    one prompt when they fit in one batch, otherwise map-reduce."""
+    return "single" if n_analyzed <= batch_documents else "mapreduce"
 
 
 @dataclass
@@ -57,6 +58,7 @@ class Generation:
 
 def generate_card(runner, theme: str, responses: list[Response], *,
                   mode: str | None = None, prompt_module=None,
+                  batch_documents: int = BATCH_DOCUMENTS,
                   log: Callable[[str], None] = print) -> Generation:
     """Turn responses into one dashboard card the way the group pipeline does.
 
@@ -64,11 +66,14 @@ def generate_card(runner, theme: str, responses: list[Response], *,
     would not pick for this many responses is allowed but changes the
     condition, so the caller should report it. prompt_module is a variant
     from genbench.variants; the default is the verbatim baseline.
+    batch_documents is the map batch size; the group pipeline uses 60.
     """
     pm = prompt_module or prompts
     evidence = [r.as_dict() for r in responses]
     selected = evidence[:MAX_DOCUMENTS]
-    mode = mode or group_default_mode(len(selected))
+    if not 1 <= batch_documents <= MAX_DOCUMENTS:
+        raise ValueError(f"batch_documents must be between 1 and {MAX_DOCUMENTS}, got {batch_documents!r}")
+    mode = mode or group_default_mode(len(selected), batch_documents)
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     gen = Generation(card={}, mode=mode, n_supplied=len(evidence), n_analyzed=len(selected))
@@ -94,7 +99,7 @@ def generate_card(runner, theme: str, responses: list[Response], *,
         gen.card = call("single", pm.build_prompt(theme, selected), len(selected))
         return gen
 
-    batches = [selected[i:i + BATCH_DOCUMENTS] for i in range(0, len(selected), BATCH_DOCUMENTS)]
+    batches = [selected[i:i + batch_documents] for i in range(0, len(selected), batch_documents)]
     batch_summaries = []
     for i, batch in enumerate(batches, start=1):
         prompt = pm.build_batch_summary_prompt(

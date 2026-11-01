@@ -92,3 +92,16 @@ def test_calls_record_usage_even_when_the_answer_cannot_be_parsed():
     assert info.value.calls == [{"step": "single", "n_responses": 6, "prompt_chars": len(runner.prompts[0]),
                                  "answer_chars": 14, "from_cache": False,
                                  "usage": {"prompt_tokens": 50, "completion_tokens": 5}}]
+
+
+def test_batch_size_is_a_setting():
+    runner = RecordingRunner()
+    gen = generate_card(runner, "Teachers", placeholders(60), batch_documents=20, log=lambda _: None)
+    assert gen.mode == "mapreduce"
+    assert len(runner.prompts) == 4                       # three maps of 20, then the reduce
+    assert "batch 3 of 3" in runner.prompts[2]
+    assert group_default_mode(60, 20) == "mapreduce" and group_default_mode(240, 240) == "single"
+
+def test_batch_size_out_of_range_is_refused():
+    with pytest.raises(ValueError, match="batch_documents"):
+        generate_card(RecordingRunner(), "Teachers", placeholders(5), batch_documents=0, log=lambda _: None)

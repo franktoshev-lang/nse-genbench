@@ -4,14 +4,16 @@
 # deployed later. run.py --model <key> and the UI use the settings below.
 #
 #   model_id               the exact id the endpoint expects (a Fontys slug)
-#   temperature            false: never send a temperature (the model rejects it)
+#   temperature            false: never send a temperature (the model rejects it,
+#                          or we keep the provider's default)
 #   token_limit_param      the field name this model accepts for the output limit
 #   price_in_per_million   price per million input tokens, if known (for the
 #   price_out_per_million  budget display only; leave null if unknown)
 #
 # Request settings below were checked with one tiny call per model on
-# 1 November 2026. Reasoning: every model runs at its provider's default
-# (provisional). Reasoning tokens are recorded per run.
+# 1 November 2026. Temperature and reasoning: every model runs at its
+# provider's default for now (decided 1 November 2026); no temperature is
+# sent to any model. Reasoning tokens are recorded per run.
 
 budget_eur: 19.7   # from the Portkey key email; the email does not state the currency
 
@@ -51,7 +53,8 @@ models:
     name: Mistral Large 3
     role: open weights (Apache 2.0, 675B), EU (Fontys alternative to Mistral Large 4)
     model_id: fontys-mistral-large-3
-    temperature: true
+    # Accepts a temperature, but runs at the provider default for now.
+    temperature: false
     # Rejects max_completion_tokens.
     token_limit_param: max_tokens
     price_in_per_million: null
@@ -61,7 +64,8 @@ models:
     name: DeepSeek V4 Flash
     role: open weights (MIT, 291B), China (Fontys alternative to DeepSeek V4 Pro)
     model_id: fontys-DeepSeek-V4-Flash
-    temperature: true
+    # Accepts a temperature, but runs at the provider default for now.
+    temperature: false
     token_limit_param: max_tokens
     price_in_per_million: null
     price_out_per_million: null

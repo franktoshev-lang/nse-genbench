@@ -265,6 +265,7 @@ async function viewResults(root, params) {
   <div class="cols">
     <section class="card">
       <div class="row" style="align-items:center"><h2>Runs</h2><div class="spacer"></div>
+        <button class="btn" id="export" title="Download the runs below as an Excel file">Export to Excel</button>
         <button class="btn primary" id="blind">Score blind</button></div>
       <p class="sub">Click a run to read its card and score it. "Score blind" picks a random unscored run
         and hides the model, the prompt and the automatic scores until you save.</p>
@@ -290,6 +291,7 @@ async function viewResults(root, params) {
     $(`#f-${key}`).addEventListener("change", (e) => { RESULT_FILTERS[key] = e.target.value; loadTable(onlyIds); });
   }
   $("#blind").addEventListener("click", () => scoreBlind());
+  $("#export").addEventListener("click", () => exportRuns(onlyIds));
   await loadTable(onlyIds);
   if (onlyIds && onlyIds.split(",").length === 1) showRun(onlyIds, false);
 }
@@ -314,6 +316,33 @@ async function loadTable(onlyIds) {
       <td>${r.scored ? `<span class="badge accent">${ratingMean(r) ?? "scored"}</span>` : '<span class="muted">-</span>'}</td>
     </tr>`).join("")}</tbody>`;
   $$("tr.clickable", table).forEach((tr) => tr.addEventListener("click", () => showRun(tr.dataset.run, false)));
+}
+
+async function exportRuns(onlyIds) {
+  // The same filters as the table, so the file holds exactly the runs shown.
+  const q = new URLSearchParams({ ...RESULT_FILTERS, ...(onlyIds ? { run_ids: onlyIds } : {}) });
+  const button = $("#export");
+  button.disabled = true;
+  button.textContent = "Exporting...";
+  try {
+    const res = await fetch(`/api/export?${q}`);
+    if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+    const name = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "genbench-export.xlsx";
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Saved ${name} to your downloads.`, "good");
+  } catch (err) {
+    toast(`Export failed: ${err.message}`, "bad");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Export to Excel";
+  }
 }
 
 function badgeBool(v, goodWhenTrue) {
@@ -549,7 +578,9 @@ function renderVariantList() {
         <span class="muted small">${v.runs} run${v.runs === 1 ? "" : "s"}</span><div class="spacer"></div>
         ${v.locked ? "" : `<button class="btn small danger" data-delete="${esc(v.id)}">Remove</button>`}</div>
       <div class="small">${esc(v.description)}</div>
+      ${v.base ? `<div class="edit-line">Built on <strong>${esc(v.base)}</strong>, plus:</div>` : ""}
       ${v.edits.map(([o, n]) => `<div class="edit-line"><del>${esc(o)}</del> <span>becomes</span> <ins>${esc(n) || "(nothing)"}</ins></div>`).join("")}
+      ${Object.entries(v.settings || {}).map(([k, val]) => `<div class="edit-line">Setting <strong>${esc(k)}</strong>: ${esc(val)} (not a text change)</div>`).join("")}
     </div>`).join("");
   $$(".variant").forEach((n) => n.addEventListener("click", (e) => {
     if (e.target.dataset.delete) return;

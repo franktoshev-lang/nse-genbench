@@ -52,12 +52,31 @@ HEADER = """\
 # tests/test_variants.py checks this, and that a variant's rendered prompts
 # equal P0's with the declared edits and nothing else. Variants added in the
 # UI are written to this file.
+#
+# `base: P0-neutral` applies that variant's edits first, so the variant
+# differs from its base in its own `dimension` only. `settings` change how the
+# pipeline batches the responses or what the request asks for, never the
+# prompt text: batch_documents, mode, response_format (genbench/variants.py).
 
 """
 
 
 class VariantError(ValueError):
     pass
+
+
+# Run settings a variant may change besides the prompt text. They change how
+# the pipeline splits the responses or what the request asks the endpoint
+# for, never the words of a prompt.
+#   batch_documents   responses per map batch (the group pipeline uses 60)
+#   mode              single | mapreduce, instead of the group pipeline's choice
+#   response_format   json_schema: ask the endpoint to constrain the answer to
+#                     the card schema (structured output)
+SETTING_RULES = {
+    "batch_documents": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 240,
+    "mode": lambda v: v in ("single", "mapreduce"),
+    "response_format": lambda v: v == "json_schema",
+}
 
 
 def load_variants(path=VARIANTS_CONFIG) -> dict[str, dict]:
@@ -68,21 +87,61 @@ def load_variants(path=VARIANTS_CONFIG) -> dict[str, dict]:
         if not isinstance(spec.get("dimension"), str) or not spec["dimension"].strip():
             raise VariantError(f"{variant_id}: 'dimension' must be one name; a variant changes one thing")
         edits = spec.get("replace") or []
-        if variant_id == BASELINE_ID and edits:
+        settings = spec.get("settings") or {}
+        if variant_id == BASELINE_ID and (edits or settings or spec.get("base")):
             raise VariantError(f"{BASELINE_ID} is the verbatim baseline and cannot have edits")
         for edit in edits:
             if (not isinstance(edit, list) or len(edit) != 3 or not isinstance(edit[0], str)
                     or not edit[0] or not isinstance(edit[1], str)
                     or not isinstance(edit[2], int) or edit[2] < 1):
                 raise VariantError(f"{variant_id}: each edit must be [old, new, count], got {edit!r}")
+        if not isinstance(settings, dict):
+            raise VariantError(f"{variant_id}: 'settings' must be a mapping")
+        for key, value in settings.items():
+            if key not in SETTING_RULES:
+                raise VariantError(f"{variant_id}: unknown setting {key!r}; use {', '.join(SETTING_RULES)}")
+            if not SETTING_RULES[key](value):
+                raise VariantError(f"{variant_id}: setting {key} has an invalid value {value!r}")
+        base = spec.get("base")
+        if base is not None and base not in variants:
+            raise VariantError(f"{variant_id}: base {base!r} is not a variant")
+    for variant_id in variants:
+        _base_chain(variant_id, variants)          # rejects a loop of bases
     return variants
 
 
+def _base_chain(variant_id: str, variants: dict) -> list[str]:
+    """[the variant, its base, the base's base, ...]."""
+    chain = [variant_id]
+    while variants[chain[-1]].get("base") is not None:
+        nxt = variants[chain[-1]]["base"]
+        if nxt in chain:
+            raise VariantError(f"{variant_id}: its bases form a loop ({' -> '.join(chain + [nxt])})")
+        chain.append(nxt)
+    return chain
+
+
 def edits_for(variant_id: str, path=VARIANTS_CONFIG) -> list[tuple[str, str, int]]:
+    """Every edit applied to P0 for this variant: its base's edits first, then
+    its own. A variant built on P0-neutral therefore never names Gemma."""
     variants = load_variants(path)
     if variant_id not in variants:
         raise VariantError(f"unknown variant {variant_id!r}; choose from {', '.join(variants)}")
-    return [tuple(e) for e in variants[variant_id].get("replace") or []]
+    edits: list[tuple[str, str, int]] = []
+    for vid in reversed(_base_chain(variant_id, variants)):
+        edits += [tuple(e) for e in variants[vid].get("replace") or []]
+    return edits
+
+
+def settings_for(variant_id: str, path=VARIANTS_CONFIG) -> dict:
+    """The variant's run settings, its own over its base's. {} for P0."""
+    variants = load_variants(path)
+    if variant_id not in variants:
+        raise VariantError(f"unknown variant {variant_id!r}; choose from {', '.join(variants)}")
+    settings: dict = {}
+    for vid in reversed(_base_chain(variant_id, variants)):
+        settings.update(variants[vid].get("settings") or {})
+    return settings
 
 
 def baseline_source() -> str:
@@ -223,5 +282,8 @@ def delete_variant(variant_id: str, path=VARIANTS_CONFIG) -> None:
         raise VariantError("P0 is the baseline control and cannot be removed")
     if variant_id not in variants:
         raise VariantError(f"unknown variant {variant_id!r}")
+    built_on = [vid for vid, spec in variants.items() if spec.get("base") == variant_id]
+    if built_on:
+        raise VariantError(f"{variant_id} is the base of {', '.join(built_on)}; remove those first")
     del variants[variant_id]
     _write(variants, path)

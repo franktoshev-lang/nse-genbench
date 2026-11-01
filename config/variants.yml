@@ -7,7 +7,13 @@
 # Each edit is [old, new, count]: `old` must occur exactly `count` times in the
 # baseline code, so an edit can never touch more places than declared.
 # tests/test_variants.py checks this, and that a variant's rendered prompts
-# equal P0's with the declared edits and nothing else.
+# equal P0's with the declared edits and nothing else. Variants added in the
+# UI are written to this file.
+#
+# `base: P0-neutral` applies that variant's edits first, so the variant
+# differs from its base in its own `dimension` only. `settings` change how the
+# pipeline batches the responses or what the request asks for, never the
+# prompt text: batch_documents, mode, response_format (genbench/variants.py).
 
 variants:
   P0:
@@ -20,8 +26,72 @@ variants:
     dimension: model_name
     description: >
       Removes the three hardcoded "Gemma 4" labels (defect D-1), so a model is
-      not told it is Gemma 4. Used for every comparison across models.
+      not told it is Gemma 4. Used for every comparison across models, and the
+      base of every variant below.
     replace:
       - ["Gemma 4 task: act as", "Task: act as", 1]
       - ["Gemma 4 output rules:", "Output rules:", 1]
       - ["Gemma 4 response contract:", "Response contract:", 1]
+
+  # Prompt-engineering research document (13 October 2026), section 4.6.
+  # Temperature (P4) is not tested for now: every model runs at its default.
+
+  P1-EN-NL:
+    base: P0-neutral
+    dimension: output_language
+    description: >
+      P1, instructions in English, output in Dutch. The analytical fields are
+      written in Dutch instead of English; student suggestions stay verbatim.
+      (The NL/NL cell needs a checked Dutch translation of the whole prompt.)
+    replace:
+      - ["write generated analytical fields in English", "write generated analytical fields in Dutch", 1]
+      - ["concise English summaries", "concise Dutch summaries", 10]
+      - ["concise English sentences", "concise Dutch sentences", 1]
+
+  P2-batch-20:
+    base: P0-neutral
+    dimension: batch_size
+    description: >
+      P2, 20 responses per map batch instead of 60. Same prompt text; more,
+      smaller map calls before the reduce step.
+    settings:
+      batch_documents: 20
+
+  P2-batch-120:
+    base: P0-neutral
+    dimension: batch_size
+    description: >
+      P2, 120 responses per map batch instead of 60. On 60 responses this is
+      the same single prompt as P0-neutral.
+    settings:
+      batch_documents: 120
+
+  P2-single:
+    base: P0-neutral
+    dimension: batch_size
+    description: >
+      P2, every response (up to the 240 cap) in one single prompt, no map or
+      reduce step. On 60 responses this is the same as P0-neutral.
+    settings:
+      mode: single
+
+  P3-summary-last:
+    base: P0-neutral
+    dimension: schema_order
+    description: >
+      P3, the summary key moves from first to last in the JSON format, so the
+      model writes its points and evidence before its overall verdict
+      (defect D-2).
+    replace:
+      - ["{\n  \"summary\": \"...\",\n  \"positive_comments\"", "{\n  \"positive_comments\"", 1]
+      - ["[\"E0001\", \"E0002\"]}\n  ]\n}", "[\"E0001\", \"E0002\"]}\n  ],\n  \"summary\": \"...\"\n}", 1]
+
+  P10-schema:
+    base: P0-neutral
+    dimension: constrained_decoding
+    description: >
+      P10, constrained decoding on: the request asks the endpoint to force the
+      answer into the card schema (response_format json_schema, strict). Same
+      prompt text. All four Fontys models accepted the setting on 1 November 2026.
+    settings:
+      response_format: json_schema
