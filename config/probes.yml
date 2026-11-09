@@ -52,3 +52,196 @@ themes:
     probes: ["lesstof", "aansluiting op de les", "niet behandeld", "not covered in class", "not taught",
              "was not taught", "were not taught", "covered in class", "covered in the lessons",
              "taught in class"]
+
+  # ── Extra subthemes of the harder v2 slices (EA2-tune, EA2-holdout) ──────
+  # Late feedback, Exam scheduling and Resits above are reused. Each list is
+  # chosen so no complaint answer of another v2 subtheme contains it (the v2
+  # generator checks this before writing).
+
+  - name: "Vague assessment criteria"
+    probes: ["criteria", "rubric", "beoordelingscriteria", "eisen", "requirements", "beoordelingsmodel",
+             "marking scheme", "what is expected", "wat er verwacht"]
+
+  - name: "Feedback quality"
+    probes: ["alleen een cijfer", "geen uitleg", "geen toelichting", "zonder toelichting", "only a grade",
+             "no explanation", "without any detail", "één zin", "one sentence", "op iedereen past",
+             "apply to anyone", "nietszeggend", "meaningless", "zie college", "see lecture", "spelfouten",
+             "only about spelling", "wat beter moet", "what to improve"]
+
+  - name: "Grading differs between assessors"
+    probes: ["twee docenten", "welke docent", "per docent", "elke docent", "ene docent", "tweede beoordelaar",
+             "strenger dan", "wie je werk beoordeelt", "two teachers", "which teacher", "second marker",
+             "every teacher", "one teacher", "stricter than", "who grades", "teacher to the next",
+             "andere groepje", "another group"]
+
+  - name: "Exam difficulty and time pressure"
+    probes: ["te moeilijk", "te weinig tijd", "tijdsdruk", "zwaarder dan", "bizar moeilijk", "af had",
+             "too difficult", "enough time", "time pressure", "harder than", "ridiculously hard",
+             "nobody finished", "time was almost up", "te veel vragen", "too many questions"]
+
+  - name: "Group work grading"
+    probes: ["groepscijfer", "hetzelfde cijfer", "meelift", "groepsgenoot", "individueel deel", "free rider",
+             "group grade", "same grade", "teammate", "individual part", "didn't contribute", "peer review",
+             "peer assessment"]
+
+  - name: "Positive remarks"
+    probes: ["positief", "positive", "tevreden", "satisfied", "complimenten", "credit to", "goed georganiseerd",
+             "well organised", "waardevol", "valuable", "hielpen echt", "really helped", "prima geregeld",
+             "handled well", "praise", "lovend"]
+
+  # ── Subthemes of the one-off v2 slices for three more themes ─────────────
+  # TE-240 (Teachers), SM-240 (Support / Mentoring), PP-240 (Professional
+  # Practice). Same rule as above: no complaint answer of another subtheme in
+  # the same slice contains these, and no answer contains the absent probes.
+
+  - name: "Unclear explanations"
+    probes: ["uitleg", "explain", "explanation", "onduidelijk uit", "verwarrend", "confusing", "vaktermen", "jargon", "te snel",
+             "too fast", "niet te volgen", "impossible to follow", "hard to follow", "unclear explanation"]
+
+  - name: "Dismissive reactions to questions"
+    probes: ["geïrriteerd", "irritated", "durf", "dare", "domme", "dom bent", "stupid", "uitgelachen", "laughed at",
+             "neerbuigend", "condescending", "op mijn gemak", "comfortable asking", "sneer", "snide", "met de ogen",
+             "rolls their eyes", "zucht", "sighs", "niet veilig", "feel safe", "afgekapt", "cut off", "dismissive"]
+
+  - name: "Boring lessons"
+    probes: ["saai", "boring", "voorlezen", "leest alleen", "reads the slides", "afwisseling", "variety", "monotoon",
+             "monotone", "dezelfde toon", "slaap", "asleep", "enthousias", "enthusias", "uninspiring", "motivat",
+             "aandacht", "lost focus"]
+
+  - name: "Little help during practical sessions"
+    probes: ["practicum", "practical", "werkcollege", "workshop", "loopt de docent", "walks around", "vastloopt",
+             "stuck", "hulp bij", "help with", "op jezelf aangewezen", "on your own", "zelf moeten uitzoeken",
+             "figure it out ourselves", "look it up", "zoek het maar op", "student assistant", "student-assistent"]
+
+  - name: "Teachers do not seem to care"
+    probes: ["naam", "names", "anyone's name", "niet uit of", "doesn't care", "don't care", "niet gezien",
+             "feel seen", "een nummer", "a number to", "ongeïnteresseerd", "uninterested", "hoe het met ons",
+             "how we were doing", "care about students", "eigen onderzoek", "own research", "nobody notices",
+             "niemand merkt"]
+
+  - name: "Positive remarks about teachers"
+    probes: ["positief", "positive", "enthousiast", "enthusiastic", "betrokken", "waardeer", "appreciat",
+             "leukste", "best of", "helder", "veilig om", "safe to make", "praise", "tevreden", "satisfied"]
+
+  - name: "Unprepared teachers"
+    probes: ["onvoorbereid", "unprepared", "voorbereid", "prepared", "slides van vorig jaar", "last year's slides",
+             "waar waren we", "where were we", "niet gelezen", "hadn't even read", "lestijd", "lesson time",
+             "looking for the slides", "zocht tijdens"]
+
+  - name: "Teaching in English"
+    probes: ["engels", "english", "nederlands", "dutch", "internationale studenten", "international students",
+             "language", "voertaal"]
+
+  - name: "Favouritism"
+    probes: ["lievelingetje", "voorgetrokken", "trekt bepaalde", "eerste rij", "front row", "favourite", "favorite",
+             "favours", "favors", "favouritism", "favoritism", "special treatment", "voorkeursbehandeling",
+             "gelijk behandel", "treat everyone"]
+
+  - name: "Lack of subject-matter expertise"
+    probes: ["vakkennis", "verstand van", "kennis van het vak", "weet zelf niet", "geen kennis", "expertise",
+             "not an expert", "lacks knowledge", "lack of knowledge", "knowledge of the subject",
+             "doesn't know the subject", "don't know the subject", "subject knowledge", "know their subject",
+             "incompetent", "onbekwaam"]
+
+  - name: "Long waits for appointments"
+    probes: ["wachten", "wachtlijst", "gewacht", "wait", "afspraak", "appointment", "volgeboekt", "fully booked",
+             "agenda", "calendar", "slot", "eerste plek", "geen plek", "inloopspreekuur", "walk-in", "beantwoord",
+             "answered"]
+
+  - name: "Not knowing where to get help"
+    probes: ["bij wie", "who to turn to", "who to contact", "where to go", "waar je met vragen heen", "niet te vinden",
+             "doesn't say how", "kastje naar de muur", "pillar to post", "doorverwezen", "referred", "overzicht",
+             "overview", "verstopt", "hidden", "raadsel", "mystery", "nobody told us", "niemand heeft ons verteld",
+             "find out", "hoorde ik"]
+
+  - name: "Mentor sessions not useful"
+    probes: ["formulier", "forms", "standaardvragen", "standard questions", "afvink", "checklist",
+             "reflectieopdracht", "reflection assignment", "omdat het moet", "because i have to", "op de klok",
+             "watches the clock", "praatjes", "small talk", "oppervlakkig", "superficial", "zonde van de tijd",
+             "waste of time", "box-ticking", "not useful", "niet nuttig", "useless"]
+
+  - name: "Frequent mentor changes"
+    probes: ["derde slb", "third mentor", "andere mentor", "different mentor", "nieuwe begeleider", "new coach",
+             "new mentor", "opnieuw vertellen", "story again", "wissel", "changes", "changed twice",
+             "change of mentor", "vaste contactpersoon", "fixed contact", "fixed mentor", "vaste mentor",
+             "someone else", "iemand anders", "vertrokken", "replaced", "band op", "relationship"]
+
+  - name: "Contradictory advice"
+    probes: ["tegenstrijdig", "contradict", "iets heel anders", "something completely different", "ene adviseur",
+             "one advisor", "ander verhaal", "different story", "klopte niet", "didn't match", "verkeerd advies",
+             "wrong advice", "turned out to be", "tegengesproken", "wie je moet geloven", "who to believe",
+             "inconsistent advice", "conflicting"]
+
+  - name: "Positive remarks about support"
+    probes: ["positief", "positive", "goud waard", "weight in gold", "enorm geholpen", "helped me enormously",
+             "denkt echt met me mee", "thinks along", "gehoord", "feel heard", "goed geregeld", "well organised",
+             "well arranged", "praise", "appreciat", "waardeer", "tevreden", "satisfied"]
+
+  - name: "No help choosing a minor or specialisation"
+    probes: ["minor", "specialisatie", "specialisation", "specialization", "afstudeerrichting", "graduation track",
+             "profiel", "profiles", "richting", "track", "study choice", "studiekeuze", "keuze"]
+
+  - name: "No help with study planning"
+    probes: ["planning", "studieplan", "study plan", "inhalen", "catch up", "achterstand", "backlog",
+             "studievertraging", "plan van aanpak", "action plan", "op schema", "on schedule", "studiepunten",
+             "credits", "achterlop", "fall behind", "falling behind"]
+
+  - name: "Support only online"
+    probes: ["teams", "online", "face-to-face", "face to face", "scherm", "screen", "videobel", "video call",
+             "fysiek", "in-person", "in person", "op locatie", "afstandelijk", "distant"]
+
+  - name: "Career orientation"
+    probes: ["career orientation", "career advice", "career guidance", "career choice", "career planning",
+             "carrièreadvies", "carrière", "beroepskeuze", "loopbaanoriëntatie", "loopbaanadvies", "future job",
+             "job market", "arbeidsmarkt", "what job", "welk werk"]
+
+  - name: "Finding an internship is left to students"
+    probes: ["stageplek", "internship place", "stage zoeken", "stage vinden", "find an internship",
+             "finding an internship", "stagebank", "internship database", "afwijzingen", "rejections", "gemaild",
+             "emailed", "stagecoördinator", "internship coordinator", "stagebureau", "internship office",
+             "looking for an internship", "stagemarkt", "internship fair"]
+
+  - name: "Little contact with the professional field"
+    probes: ["gastles", "guest lecture", "gastspreker", "guest speaker", "bedrijfsbezoek", "company visit",
+             "netwerkevenement", "networking event", "werkveld", "professional field", "people from the field", "in the field",
+             "excursie", "excursion", "banden met bedrijven", "ties with companies", "in contact met"]
+
+  - name: "Projects are not realistic"
+    probes: ["verzonnen", "made-up", "made up", "fictief", "fictional", "fake", "nepcase", "echte opdrachtgever",
+             "real client", "echte klant", "real clients", "in het echt", "real life", "in reality", "realistisch",
+             "realistic", "rol speelt", "playing a role", "schoolopdracht", "school assignment",
+             "echte organisatie", "real organisation"]
+
+  - name: "Programme content is outdated"
+    probes: ["achterhaald", "obsolete", "verouderd", "outdated", "out of date", "tien jaar oud", "ten years old",
+             "geen enkel bedrijf meer", "no company uses", "loopt jaren achter", "years behind",
+             "niet meer de standaard", "stopped being the standard", "nieuwe ontwikkelingen", "new developments",
+             "werkgevers", "employers", "up to date", "up-to-date"]
+
+  - name: "Poor supervision during the internship"
+    probes: ["stagebegeleider", "internship supervisor", "school supervisor", "stagedocent", "internship teacher",
+             "hoorde ik wekenlang", "heard nothing from school", "only visited", "reageerde school niet",
+             "didn't respond", "terugkomdag", "return days", "in de steek gelaten", "abandoned", "supervision"]
+
+  - name: "Positive remarks about professional practice"
+    probes: ["positief", "positive", "inspirerend", "inspiring", "leerzaam", "instructive", "hoogtepunt",
+             "highlight", "prepares you well", "goed voor op", "praise", "tevreden", "satisfied", "appreciat",
+             "waardeer", "enorm veel geleerd", "taught me"]
+
+  - name: "Professional skills are not practised"
+    probes: ["presenteren voor", "presenting to", "vergadering", "meeting", "overleg", "zakelijk", "business email",
+             "business call", "onderhandel", "negotiat", "feedback geeft", "give feedback", "samenwerken met mensen",
+             "working with people", "professionele vaardigheden", "professional skills", "soft skills", "communicat"]
+
+  - name: "Internships are too short"
+    probes: ["te kort", "too short", "so short", "korte stage", "ingewerkt", "settled in", "alweer voorbij",
+             "voorbij voordat", "already over", "was over", "paar weken", "few weeks", "halve dag", "half a day",
+             "duurde maar", "only lasted", "langere stage", "longer internship", "six months", "half jaar"]
+
+  - name: "No internships abroad"
+    probes: ["buitenland", "abroad", "internationale stage", "international internship", "duitsland", "germany",
+             "goedgekeurd", "approved", "overseas"]
+
+  - name: "Job application skills"
+    probes: ["sollicit", "job interview", "job application", "applying for jobs", "linkedin", "motivatiebrief",
+             "cover letter", "vacature", "vacancy", "vacancies", "recruiter", "curriculum vitae"]
